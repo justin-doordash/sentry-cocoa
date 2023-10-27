@@ -107,6 +107,7 @@ SentryCrashReportConverter ()
             event.timestamp =
                 [NSDate sentry_fromIso8601String:self.report[@"report"][@"timestamp"]];
         }
+        event.reportId = self.report[@"report"][@"id"];
         event.threads = [self convertThreads];
         event.debugMeta = [self debugMetaForThreads:event.threads];
         event.exceptions = [self convertExceptions];
