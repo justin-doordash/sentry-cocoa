@@ -102,7 +102,6 @@ NS_SWIFT_NAME(Options)
  */
 @property (nullable, nonatomic, copy) SentryBeforeCrashCallback beforeCrash;
 
-
 /**
  * When enabled, and when the beforeCrash handler is not null, this allows the callee
  * an opportunity to run a function before we crash.

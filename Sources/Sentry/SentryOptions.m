@@ -2,6 +2,7 @@
 #import "SentryANRTrackingIntegration.h"
 #import "SentryAutoBreadcrumbTrackingIntegration.h"
 #import "SentryAutoSessionTrackingIntegration.h"
+#import "SentryBeforeCrashIntegration.h"
 #import "SentryCoreDataTrackingIntegration.h"
 #import "SentryCrashIntegration.h"
 #import "SentryDsn.h"
@@ -19,7 +20,6 @@
 #import "SentrySwift.h"
 #import "SentrySwiftAsyncIntegration.h"
 #import "SentryTracer.h"
-#import "SentryBeforeCrashIntegration.h"
 #import <objc/runtime.h>
 
 #if SENTRY_HAS_UIKIT
@@ -451,10 +451,10 @@ NSString *const kSentryDefaultEnvironment = @"production";
     if ([self isBlock:options[@"tracesSampler"]]) {
         self.tracesSampler = options[@"tracesSampler"];
     }
-    
+
     [self setBool:options[@"enableBeforeCrashHandler"]
             block:^(BOOL value) { self->_enableBeforeCrashHandler = value; }];
-    
+
     if ([self isBlock:options[@"beforeCrash"]]) {
         self.beforeCrash = options[@"beforeCrash"];
     }
