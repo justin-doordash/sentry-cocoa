@@ -107,7 +107,7 @@ onCrash(struct SentryCrash_MonitorContext *monitorContext)
             }
         }
     }
-    
+
     if (g_beforeCrashCallback) {
         g_beforeCrashCallback(monitorContext->eventID);
     }
