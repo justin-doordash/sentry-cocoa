@@ -18,6 +18,7 @@
 #import "SentrySwift.h"
 #import "SentrySwiftAsyncIntegration.h"
 #import "SentryTracer.h"
+#import "SentryBeforeCrashIntegration.h"
 #import <objc/runtime.h>
 
 #if SENTRY_HAS_UIKIT
@@ -75,7 +76,7 @@ NSString *const kSentryDefaultEnvironment = @"production";
         [SentryANRTrackingIntegration class], [SentryAutoBreadcrumbTrackingIntegration class],
         [SentryAutoSessionTrackingIntegration class], [SentryCoreDataTrackingIntegration class],
         [SentryFileIOTrackingIntegration class], [SentryNetworkTrackingIntegration class],
-        [SentrySwiftAsyncIntegration class], nil];
+        [SentrySwiftAsyncIntegration class], [SentryBeforeCrashIntegration class], nil];
 
 #if TARGET_OS_IOS && SENTRY_HAS_UIKIT
     if (@available(iOS 13.0, *)) {
@@ -104,6 +105,7 @@ NSString *const kSentryDefaultEnvironment = @"production";
 #if !TARGET_OS_WATCH
         self.enableSigtermReporting = NO;
 #endif // !TARGET_OS_WATCH
+        self.enableBeforeCrashHandler = NO;
         self.diagnosticLevel = kSentryLevelDebug;
         self.debug = NO;
         self.maxBreadcrumbs = defaultMaxBreadcrumbs;
@@ -500,6 +502,14 @@ NSString *const kSentryDefaultEnvironment = @"production";
     if ([self isBlock:options[@"tracesSampler"]]) {
         self.tracesSampler = options[@"tracesSampler"];
     }
+    
+    [self setBool:options[@"enableBeforeCrashHandler"]
+            block:^(BOOL value) { self->_enableBeforeCrashHandler = value; }];
+    
+    if ([self isBlock:options[@"beforeCrash"]]) {
+        self.beforeCrash = options[@"beforeCrash"];
+    }
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
     if ([options[@"enableTracing"] isKindOfClass:NSNumber.self]) {
