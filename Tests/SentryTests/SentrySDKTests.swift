@@ -357,6 +357,27 @@ class SentrySDKTests: XCTestCase {
         XCTAssertEqual(envelope.header.eventId, fixture.client.storedEnvelopeInvocations.first?.header.eventId)
     }
     
+    /// This is to prevent https://github.com/getsentry/sentry-cocoa/issues/4280
+    /// With 8.33.0, writing an envelope could fail in the middle of the process, which the envelope
+    /// payload below simulates. The JSON stems from writing an envelope to disk with vast data
+    /// that leads to an OOM termination on v 8.33.0.
+    /// Running this test on v 8.33.0 leads to a crash.
+    func testStartSDK_WithCorruptedEnvelope() throws {
+        
+        let fileManager = try SentryFileManager(options: fixture.options)
+        
+        let corruptedEnvelopeData = """
+                       {"event_id":"1990b5bc31904b7395fd07feb72daf1c","sdk":{"name":"sentry.cocoa","version":"8.33.0"}}
+                       {"type":"test","length":50}
+                       """.data(using: .utf8)!
+        
+        try corruptedEnvelopeData.write(to: URL(fileURLWithPath: "\(fileManager.envelopesPath)/corrupted-envelope.json"))
+        
+        SentrySDK.start(options: fixture.options)
+        
+        fileManager.deleteAllEnvelopes()
+    }
+    
     func testStoreEnvelope_WhenNoClient_NoCrash() {
         SentrySDK.store(SentryEnvelope(event: TestData.event))
         
@@ -398,7 +419,7 @@ class SentrySDKTests: XCTestCase {
         
         XCTAssertEqual(operation, transaction.operation)
         let tracer = try XCTUnwrap(transaction as? SentryTracer)
-        XCTAssertEqual(name, tracer.traceContext.transaction)
+        XCTAssertEqual(name, tracer.traceContext?.transaction)
         
         XCTAssertNil(SentrySDK.span)
     }
@@ -410,7 +431,7 @@ class SentrySDKTests: XCTestCase {
         
         XCTAssertEqual(fixture.operation, transaction.operation)
         let tracer = try XCTUnwrap(transaction as? SentryTracer)
-        XCTAssertEqual(fixture.transactionName, tracer.traceContext.transaction)
+        XCTAssertEqual(fixture.transactionName, tracer.traceContext?.transaction)
         XCTAssertEqual(.custom, tracer.transactionContext.nameSource)
         
         let newSpan = SentrySDK.span
@@ -423,17 +444,18 @@ class SentrySDKTests: XCTestCase {
     func testStartingContinuousProfilerWithSampleRateZero() throws {
         givenSdkWithHub()
         
-        // nil is the default value for profilesSampleRate, so we don't have to explicitly set it on the fixture
-        XCTAssertNil(fixture.options.profilesSampleRate)
+        fixture.options.profilesSampleRate = 0
+        XCTAssertEqual(try XCTUnwrap(fixture.options.profilesSampleRate).doubleValue, 0)
+
         XCTAssertFalse(SentryContinuousProfiler.isCurrentlyProfiling())
         SentrySDK.startProfiler()
-        XCTAssert(SentryContinuousProfiler.isCurrentlyProfiling())
+        XCTAssertFalse(SentryContinuousProfiler.isCurrentlyProfiling())
     }
 
     func testStartingContinuousProfilerWithSampleRateNil() throws {
         givenSdkWithHub()
         
-        fixture.options.profilesSampleRate = nil
+        // nil is the default initial value for profilesSampleRate, so we don't have to explicitly set it on the fixture
         XCTAssertFalse(SentryContinuousProfiler.isCurrentlyProfiling())
         SentrySDK.startProfiler()
         XCTAssert(SentryContinuousProfiler.isCurrentlyProfiling())
@@ -691,6 +713,25 @@ class SentrySDKTests: XCTestCase {
         SentrySDK.close()
         XCTAssertFalse(deviceWrapper.started)
     }
+    
+    /// Ensure to start the UIDeviceWrapper before initializing the hub, so enrich scope sets the correct OS version.
+    func testStartSDK_ScopeContextContainsOSVersion() throws {
+        let expectation = expectation(description: "MainThreadTestIntegration install called")
+        MainThreadTestIntegration.expectation = expectation
+        
+        DispatchQueue.global(qos: .default).async {
+            SentrySDK.start { options in
+                options.integrations = [ NSStringFromClass(MainThreadTestIntegration.self) ]
+            }
+        }
+        
+        wait(for: [expectation], timeout: 1.0)
+        
+        let os = try XCTUnwrap (SentrySDK.currentHub().scope.contextDictionary["os"] as? [String: Any])
+#if !targetEnvironment(macCatalyst)
+        XCTAssertEqual(UIDevice.current.systemVersion, os["version"] as? String)
+#endif
+    }
 #endif
     
     func testResumeAndPauseAppHangTracking() {
@@ -705,11 +746,11 @@ class SentrySDKTests: XCTestCase {
         let anrTrackingIntegration = SentrySDK.currentHub().getInstalledIntegration(SentryANRTrackingIntegration.self)
         
         SentrySDK.pauseAppHangTracking()
-        Dynamic(anrTrackingIntegration).anrDetected()
+        Dynamic(anrTrackingIntegration).anrDetectedWithType(SentryANRType.unknown)
         XCTAssertEqual(0, client.captureEventWithScopeInvocations.count)
         
         SentrySDK.resumeAppHangTracking()
-        Dynamic(anrTrackingIntegration).anrDetected()
+        Dynamic(anrTrackingIntegration).anrDetectedWithType(SentryANRType.unknown)
         
         if SentryDependencyContainer.sharedInstance().crashWrapper.isBeingTraced() {
             XCTAssertEqual(0, client.captureEventWithScopeInvocations.count)

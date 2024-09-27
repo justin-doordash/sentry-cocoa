@@ -35,8 +35,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface
-SentryHub () <SentryMetricsAPIDelegate>
+@interface SentryHub () <SentryMetricsAPIDelegate>
 
 @property (nullable, nonatomic, strong) SentryClient *client;
 @property (nullable, nonatomic, strong) SentryScope *scope;
@@ -56,10 +55,24 @@ SentryHub () <SentryMetricsAPIDelegate>
 - (instancetype)initWithClient:(nullable SentryClient *)client
                       andScope:(nullable SentryScope *)scope
 {
+    return [self initWithClient:client
+                       andScope:scope
+                andCrashWrapper:SentryDependencyContainer.sharedInstance.crashWrapper
+               andDispatchQueue:SentryDependencyContainer.sharedInstance.dispatchQueueWrapper];
+}
+
+/** Internal constructor for testing */
+- (instancetype)initWithClient:(nullable SentryClient *)client
+                      andScope:(nullable SentryScope *)scope
+               andCrashWrapper:(SentryCrashWrapper *)crashWrapper
+              andDispatchQueue:(SentryDispatchQueueWrapper *)dispatchQueue
+{
+
     if (self = [super init]) {
         _client = client;
         _scope = scope;
-        _dispatchQueue = SentryDependencyContainer.sharedInstance.dispatchQueueWrapper;
+        _crashWrapper = crashWrapper;
+        _dispatchQueue = dispatchQueue;
         SentryStatsdClient *statsdClient = [[SentryStatsdClient alloc] initWithClient:client];
         SentryMetricsClient *metricsClient =
             [[SentryMetricsClient alloc] initWithClient:statsdClient];
@@ -76,23 +89,12 @@ SentryHub () <SentryMetricsAPIDelegate>
         _integrationsLock = [[NSObject alloc] init];
         _installedIntegrations = [[NSMutableArray alloc] init];
         _installedIntegrationNames = [[NSMutableSet alloc] init];
-        _crashWrapper = [SentryCrashWrapper sharedInstance];
         _errorsBeforeSession = 0;
 
-        [SentryDependencyContainer.sharedInstance.crashWrapper enrichScope:scope];
+        if (_scope) {
+            [_crashWrapper enrichScope:_scope];
+        }
     }
-    return self;
-}
-
-/** Internal constructor for testing */
-- (instancetype)initWithClient:(nullable SentryClient *)client
-                      andScope:(nullable SentryScope *)scope
-               andCrashWrapper:(SentryCrashWrapper *)crashWrapper
-              andDispatchQueue:(SentryDispatchQueueWrapper *)dispatchQueue
-{
-    self = [self initWithClient:client andScope:scope];
-    _crashWrapper = crashWrapper;
-    _dispatchQueue = dispatchQueue;
 
     return self;
 }
@@ -217,7 +219,7 @@ SentryHub () <SentryMetricsAPIDelegate>
         if (client.options.diagnosticLevel == kSentryLevelDebug) {
             [SentryLog
                 logWithMessage:[NSString stringWithFormat:@"Capturing session with status: %@",
-                                         [self createSessionDebugString:session]]
+                                   [self createSessionDebugString:session]]
                       andLevel:kSentryLevelDebug];
         }
         [client captureSession:session];
@@ -538,7 +540,7 @@ SentryHub () <SentryMetricsAPIDelegate>
                 _scope = [[SentryScope alloc] init];
             }
 
-            [SentryDependencyContainer.sharedInstance.crashWrapper enrichScope:_scope];
+            [_crashWrapper enrichScope:_scope];
         }
         return _scope;
     }
@@ -679,7 +681,7 @@ SentryHub () <SentryMetricsAPIDelegate>
                 if (_client.options.diagnosticLevel == kSentryLevelDebug) {
                     [SentryLog
                         logWithMessage:[NSString stringWithFormat:@"Ending session with status: %@",
-                                                 [self createSessionDebugString:currentSession]]
+                                           [self createSessionDebugString:currentSession]]
                               andLevel:kSentryLevelDebug];
                 }
                 if (startNewSession) {
@@ -705,7 +707,8 @@ SentryHub () <SentryMetricsAPIDelegate>
     for (SentryEnvelopeItem *item in items) {
         if ([item.header.type isEqualToString:SentryEnvelopeItemTypeEvent]) {
             // If there is no level the default is error
-            NSDictionary *eventJson = [SentrySerialization deserializeEventEnvelopeItem:item.data];
+            NSDictionary *eventJson =
+                [SentrySerialization deserializeDictionaryFromJsonData:item.data];
             if (eventJson == nil) {
                 return NO;
             }

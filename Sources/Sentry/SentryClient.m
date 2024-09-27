@@ -11,7 +11,7 @@
 #import "SentryDsn.h"
 #import "SentryEnvelope+Private.h"
 #import "SentryEnvelopeItemType.h"
-#import "SentryEvent.h"
+#import "SentryEvent+Private.h"
 #import "SentryException.h"
 #import "SentryExtraContextProvider.h"
 #import "SentryFileManager.h"
@@ -55,8 +55,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface
-SentryClient ()
+@interface SentryClient ()
 
 @property (nonatomic, strong) SentryTransportAdapter *transportAdapter;
 @property (nonatomic, strong) SentryDebugImageProvider *debugImageProvider;
@@ -403,7 +402,8 @@ NSString *const DropSessionLogMessage = @"Session has no release name. Won't sen
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
         return [[SentryTraceContext alloc] initWithTraceId:scope.propagationContext.traceId
                                                    options:self.options
-                                               userSegment:scope.userObject.segment];
+                                               userSegment:scope.userObject.segment
+                                                  replayId:scope.replayId];
 #pragma clang diagnostic pop
     }
 
@@ -466,6 +466,12 @@ NSString *const DropSessionLogMessage = @"Session has no release name. Won't sen
                      .attachmentProcessors) {
                 attachments = [attachmentProcessor processAttachments:attachments forEvent:event];
             }
+        }
+
+        if (event.isCrashEvent && event.context[@"replay"] &&
+            [event.context[@"replay"] isKindOfClass:NSDictionary.class]) {
+            NSDictionary *replay = event.context[@"replay"];
+            scope.replayId = replay[@"replay_id"];
         }
 
         SentryTraceContext *traceContext = [self getTraceStateWithEvent:event withScope:scope];
@@ -978,7 +984,7 @@ NSString *const DropSessionLogMessage = @"Session has no release name. Won't sen
                               app[@"view_names"] = @[ scope.currentScreen ];
                           } else {
                               app[@"view_names"] = [SentryDependencyContainer.sharedInstance
-                                                        .application relevantViewControllersNames];
+                                      .application relevantViewControllersNames];
                           }
                       }
                   }];
@@ -994,6 +1000,7 @@ NSString *const DropSessionLogMessage = @"Session has no release name. Won't sen
                       [device removeObjectForKey:@"orientation"];
                       [device removeObjectForKey:@"charging"];
                       [device removeObjectForKey:@"battery_level"];
+                      [device removeObjectForKey:@"thermal_state"];
                   }];
 
     [self modifyContext:event

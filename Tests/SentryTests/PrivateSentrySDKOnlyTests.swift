@@ -114,6 +114,11 @@ class PrivateSentrySDKOnlyTests: XCTestCase {
         let itemData = "{}\n{\"length\":0,\"type\":\"attachment\"}\n".data(using: .utf8)!
         XCTAssertNotNil(PrivateSentrySDKOnly.envelope(with: itemData))
     }
+    
+    func testEnvelopeWithDataLengthGtZero() throws {
+        let itemData = "{}\n{\"length\":1,\"type\":\"attachment\"}\n".data(using: .utf8)!
+        XCTAssertNil(PrivateSentrySDKOnly.envelope(with: itemData))
+    }
 
     func testGetDebugImages() {
         let images = PrivateSentrySDKOnly.getDebugImages()
@@ -373,8 +378,9 @@ class PrivateSentrySDKOnlyTests: XCTestCase {
             return true
         }
 
-        override func captureReplay() {
+        override func captureReplay() -> Bool {
             TestSentrySessionReplayIntegration.captureReplayCalledTimes += 1
+            return true
         }
 
         static func captureReplayShouldBeCalledAtLeastOnce() -> Bool {

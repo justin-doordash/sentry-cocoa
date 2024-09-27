@@ -2,14 +2,14 @@
 #import "SentryDependencyContainer.h"
 #import "SentryDispatchQueueWrapper.h"
 
-#if TARGET_OS_IOS && SENTRY_HAS_UIKIT
+#if SENTRY_HAS_UIKIT
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface
-SentryUIDeviceWrapper ()
+@interface SentryUIDeviceWrapper ()
 @property (nonatomic) BOOL cleanupDeviceOrientationNotifications;
 @property (nonatomic) BOOL cleanupBatteryMonitoring;
+@property (nonatomic, copy) NSString *systemVersion;
 @end
 
 @implementation SentryUIDeviceWrapper
@@ -17,6 +17,8 @@ SentryUIDeviceWrapper ()
 - (void)start
 {
     [SentryDependencyContainer.sharedInstance.dispatchQueueWrapper dispatchAsyncOnMainQueue:^{
+
+#    if TARGET_OS_IOS
         if (!UIDevice.currentDevice.isGeneratingDeviceOrientationNotifications) {
             self.cleanupDeviceOrientationNotifications = YES;
             [UIDevice.currentDevice beginGeneratingDeviceOrientationNotifications];
@@ -27,11 +29,15 @@ SentryUIDeviceWrapper ()
             self.cleanupBatteryMonitoring = YES;
             UIDevice.currentDevice.batteryMonitoringEnabled = YES;
         }
+#    endif
+
+        self.systemVersion = [UIDevice currentDevice].systemVersion;
     }];
 }
 
 - (void)stop
 {
+#    if TARGET_OS_IOS
     BOOL needsCleanUp = self.cleanupDeviceOrientationNotifications;
     BOOL needsDisablingBattery = self.cleanupBatteryMonitoring;
     UIDevice *device = [UIDevice currentDevice];
@@ -43,6 +49,7 @@ SentryUIDeviceWrapper ()
             device.batteryMonitoringEnabled = NO;
         }
     }];
+#    endif // TARGET_OS_IOS
 }
 
 - (void)dealloc
@@ -50,6 +57,7 @@ SentryUIDeviceWrapper ()
     [self stop];
 }
 
+#    if TARGET_OS_IOS
 - (UIDeviceOrientation)orientation
 {
     return (UIDeviceOrientation)[UIDevice currentDevice].orientation;
@@ -69,9 +77,15 @@ SentryUIDeviceWrapper ()
 {
     return [UIDevice currentDevice].batteryLevel;
 }
+#    endif // TARGET_OS_IOS
+
+- (NSString *)getSystemVersion
+{
+    return self.systemVersion;
+}
 
 @end
 
 NS_ASSUME_NONNULL_END
 
-#endif // TARGET_OS_IOS && SENTRY_HAS_UIKIT
+#endif // SENTRY_HAS_UIKIT
