@@ -6,20 +6,31 @@ import UIKit
 import XCTest
 
 class RedactOptions: SentryRedactOptions {
-    var redactViewClasses: [AnyClass]
-    var ignoreViewClasses: [AnyClass]
-    var redactAllText: Bool
-    var redactAllImages: Bool
+    var maskedViewClasses: [AnyClass]
+    var unmaskedViewClasses: [AnyClass]
+    var maskAllText: Bool
+    var maskAllImages: Bool
     
-    init(redactAllText: Bool = true, redactAllImages: Bool = true) {
-        self.redactAllText = redactAllText
-        self.redactAllImages = redactAllImages
-        redactViewClasses = []
-        ignoreViewClasses = []
+    init(maskAllText: Bool = true, maskAllImages: Bool = true) {
+        self.maskAllText = maskAllText
+        self.maskAllImages = maskAllImages
+        maskedViewClasses = []
+        unmaskedViewClasses = []
     }
 }
 
 class UIRedactBuilderTests: XCTestCase {
+    private class CustomVisibilityView: UIView {
+        class CustomLayer: CALayer {
+            override var opacity: Float {
+                get { 0.5 }
+                set { }
+            }
+        }
+        override class var layerClass: AnyClass {
+            return CustomLayer.self
+        }
+    }
     
     private let rootView = UIView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
     
@@ -51,8 +62,18 @@ class UIRedactBuilderTests: XCTestCase {
         XCTAssertEqual(result.first?.transform, CGAffineTransform(a: 1, b: 0, c: 0, d: 1, tx: 20, ty: 20))
     }
     
+    func testDontUseLabelTransparentColor() {
+        let sut = getSut()
+        let label = UILabel(frame: CGRect(x: 20, y: 20, width: 40, height: 40))
+        label.textColor = .purple.withAlphaComponent(0.5)
+        rootView.addSubview(label)
+
+        let result = sut.redactRegionsFor(view: rootView)
+        XCTAssertEqual(result.first?.color, .purple)
+    }
+    
     func testDontRedactALabelOptionDisabled() {
-        let sut = getSut(RedactOptions(redactAllText: false))
+        let sut = getSut(RedactOptions(maskAllText: false))
         let label = UILabel(frame: CGRect(x: 20, y: 20, width: 40, height: 40))
         label.textColor = .purple
         rootView.addSubview(label)
@@ -81,7 +102,7 @@ class UIRedactBuilderTests: XCTestCase {
     }
     
     func testDontRedactAImageOptionDisabled() {
-        let sut = getSut(RedactOptions(redactAllImages: false))
+        let sut = getSut(RedactOptions(maskAllImages: false))
         
         let image = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 40)).image { context in
             context.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
@@ -190,14 +211,120 @@ class UIRedactBuilderTests: XCTestCase {
         let result = sut.redactRegionsFor(view: rootView)
         XCTAssertEqual(result.count, 1)
     }
-    
+
+    func testIgnoreContainerChildView() {
+        class IgnoreContainer: UIView {}
+        class AnotherLabel: UILabel {}
+
+        let sut = getSut()
+        sut.setIgnoreContainerClass(IgnoreContainer.self)
+
+        let ignoreContainer = IgnoreContainer(frame: CGRect(x: 0, y: 0, width: 60, height: 60))
+        let wrappedLabel = AnotherLabel(frame: CGRect(x: 20, y: 20, width: 40, height: 40))
+        ignoreContainer.addSubview(wrappedLabel)
+        rootView.addSubview(ignoreContainer)
+
+        let result = sut.redactRegionsFor(view: rootView)
+        XCTAssertEqual(result.count, 0)
+    }
+
+    func testIgnoreContainerDirectChildView() {
+        class IgnoreContainer: UIView {}
+        class AnotherLabel: UILabel {}
+
+        let sut = getSut()
+        sut.setIgnoreContainerClass(IgnoreContainer.self)
+
+        let ignoreContainer = IgnoreContainer(frame: CGRect(x: 0, y: 0, width: 60, height: 60))
+        let wrappedLabel = AnotherLabel(frame: CGRect(x: 20, y: 20, width: 40, height: 40))
+        let redactedLabel = AnotherLabel(frame: CGRect(x: 10, y: 10, width: 10, height: 10))
+        wrappedLabel.addSubview(redactedLabel)
+        ignoreContainer.addSubview(wrappedLabel)
+        rootView.addSubview(ignoreContainer)
+
+        let result = sut.redactRegionsFor(view: rootView)
+        XCTAssertEqual(result.count, 1)
+    }
+
+    func testRedactIgnoreContainerAsChildOfMaskedView() {
+        class IgnoreContainer: UIView {}
+
+        let sut = getSut()
+        sut.setIgnoreContainerClass(IgnoreContainer.self)
+
+        let redactedLabel = UILabel(frame: CGRect(x: 0, y: 0, width: 60, height: 60))
+        let ignoreContainer = IgnoreContainer(frame: CGRect(x: 20, y: 20, width: 40, height: 40))
+        let redactedChildLabel = UILabel(frame: CGRect(x: 10, y: 10, width: 10, height: 10))
+        ignoreContainer.addSubview(redactedChildLabel)
+        redactedLabel.addSubview(ignoreContainer)
+        rootView.addSubview(redactedLabel)
+
+        let result = sut.redactRegionsFor(view: rootView)
+        XCTAssertEqual(result.count, 3)
+    }
+
+    func testRedactChildrenOfRedactContainer() {
+        class RedactContainer: UIView {}
+        class AnotherView: UIView {}
+
+        let sut = getSut()
+        sut.setRedactContainerClass(RedactContainer.self)
+
+        let redactContainer = RedactContainer(frame: CGRect(x: 0, y: 0, width: 60, height: 60))
+        let redactedView = AnotherView(frame: CGRect(x: 20, y: 20, width: 40, height: 40))
+        let redactedView2 = AnotherView(frame: CGRect(x: 10, y: 10, width: 10, height: 10))
+        redactedView.addSubview(redactedView2)
+        redactContainer.addSubview(redactedView)
+        rootView.addSubview(redactContainer)
+
+        let result = sut.redactRegionsFor(view: rootView)
+        XCTAssertEqual(result.count, 3)
+    }
+
+    func testRedactChildrenOfRedactedView() {
+        class AnotherView: UIView {}
+
+        let sut = getSut()
+
+        let redactedLabel = UILabel(frame: CGRect(x: 0, y: 0, width: 60, height: 60))
+        let redactedView = AnotherView(frame: CGRect(x: 20, y: 20, width: 40, height: 40))
+        redactedLabel.addSubview(redactedView)
+        rootView.addSubview(redactedLabel)
+
+        let result = sut.redactRegionsFor(view: rootView)
+        XCTAssertEqual(result.count, 2)
+    }
+
+    func testRedactContainerHasPriorityOverIgnoreContainer() {
+        class IgnoreContainer: UIView {}
+        class RedactContainer: UIView {}
+        class AnotherView: UIView {}
+
+        let sut = getSut()
+        sut.setRedactContainerClass(RedactContainer.self)
+
+        let ignoreContainer = IgnoreContainer(frame: CGRect(x: 0, y: 0, width: 80, height: 80))
+        let redactContainer = RedactContainer(frame: CGRect(x: 0, y: 0, width: 60, height: 60))
+        let redactedView = AnotherView(frame: CGRect(x: 20, y: 20, width: 40, height: 40))
+        let ignoreContainer2 = IgnoreContainer(frame: CGRect(x: 10, y: 10, width: 10, height: 10))
+        let redactedView2 = AnotherView(frame: CGRect(x: 15, y: 15, width: 5, height: 5))
+        ignoreContainer2.addSubview(redactedView2)
+        redactedView.addSubview(ignoreContainer2)
+        redactContainer.addSubview(redactedView)
+        ignoreContainer.addSubview(redactContainer)
+        rootView.addSubview(ignoreContainer)
+
+        let result = sut.redactRegionsFor(view: rootView)
+        XCTAssertEqual(result.count, 4)
+    }
+
     func testIgnoreView() {
         class AnotherLabel: UILabel {
         }
         
         let sut = getSut()
         let label = AnotherLabel(frame: CGRect(x: 20, y: 20, width: 40, height: 40))
-        SentrySDK.replay.ignoreView(label)
+        SentrySDK.replay.unmaskView(label)
         rootView.addSubview(label)
         
         let result = sut.redactRegionsFor(view: rootView)
@@ -210,7 +337,7 @@ class UIRedactBuilderTests: XCTestCase {
         
         let sut = getSut()
         let view = AnotherView(frame: CGRect(x: 20, y: 20, width: 40, height: 40))
-        SentrySDK.replay.redactView(view)
+        SentrySDK.replay.maskView(view)
         rootView.addSubview(view)
         
         let result = sut.redactRegionsFor(view: rootView)
@@ -223,7 +350,7 @@ class UIRedactBuilderTests: XCTestCase {
         
         let sut = getSut()
         let label = AnotherLabel(frame: CGRect(x: 20, y: 20, width: 40, height: 40))
-        label.sentryReplayIgnore()
+        label.sentryReplayUnmask()
         rootView.addSubview(label)
         
         let result = sut.redactRegionsFor(view: rootView)
@@ -236,7 +363,7 @@ class UIRedactBuilderTests: XCTestCase {
         
         let sut = getSut()
         let view = AnotherView(frame: CGRect(x: 20, y: 20, width: 40, height: 40))
-        view.sentryReplayRedact()
+        view.sentryReplayMask()
         rootView.addSubview(view)
         
         let result = sut.redactRegionsFor(view: rootView)
@@ -277,6 +404,32 @@ class UIRedactBuilderTests: XCTestCase {
         expectedList.forEach { element in
             XCTAssertTrue(sut.containsIgnoreClass(element), "\(element) not found")
         }
+    }
+    
+    func testLayerIsNotFullyTransparentRedacted() {
+        let sut = getSut()
+        let view = CustomVisibilityView(frame: CGRect(x: 20, y: 20, width: 40, height: 40))
+        view.alpha = 0
+        view.sentryReplayMask()
+        
+        view.backgroundColor = .purple
+        rootView.addSubview(view)
+        
+        let result = sut.redactRegionsFor(view: rootView)
+        XCTAssertEqual(result.count, 1)
+    }
+    
+    func testViewLayerOnTopIsNotFullyTransparentRedacted() {
+        let sut = getSut()
+        let view = CustomVisibilityView(frame: CGRect(x: 20, y: 20, width: 40, height: 40))
+        let label = UILabel(frame: CGRect(x: 20, y: 20, width: 40, height: 40))
+        view.backgroundColor = .purple
+        rootView.addSubview(label)
+        rootView.addSubview(view)
+        
+        let result = sut.redactRegionsFor(view: rootView)
+        XCTAssertEqual(result.first?.type, .redact)
+        XCTAssertEqual(result.count, 1)
     }
 }
 

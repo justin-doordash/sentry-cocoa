@@ -422,6 +422,33 @@ class SentryHubTests: XCTestCase {
         XCTAssertEqual(4, lostEvent?.quantity)
     }
     
+    func testSaveCrashTransaction_SavesTransaction() throws {
+        let scope = fixture.scope
+        let sut = SentryHub(client: fixture.client, andScope: scope)
+        
+        let transaction = sut.startTransaction(transactionContext: TransactionContext(name: fixture.transactionName, operation: fixture.transactionOperation, sampled: .yes))
+        
+        let trans = Dynamic(transaction).toTransaction().asAnyObject
+        sut.saveCrash(try XCTUnwrap(trans as? Transaction))
+        
+        let client = fixture.client
+        XCTAssertEqual(1, client.saveCrashTransactionInvocations.count)
+        XCTAssertEqual(scope, client.saveCrashTransactionInvocations.first?.scope)
+        XCTAssertEqual(0, client.recordLostEvents.count)
+    }
+    
+    func testSaveCrashTransaction_NotSampled_DoesNotSaveTransaction() throws {
+        let scope = fixture.scope
+        let sut = SentryHub(client: fixture.client, andScope: scope)
+        
+        let transaction = sut.startTransaction(transactionContext: TransactionContext(name: fixture.transactionName, operation: fixture.transactionOperation, sampled: .no))
+        
+        let trans = Dynamic(transaction).toTransaction().asAnyObject
+        sut.saveCrash(try XCTUnwrap(trans as? Transaction))
+        
+        XCTAssertEqual(self.fixture.client.saveCrashTransactionInvocations.count, 0)
+    }
+    
     func testCaptureMessageWithScope() {
         fixture.getSut().capture(message: fixture.message, scope: fixture.scope)
         
@@ -1037,130 +1064,6 @@ class SentryHubTests: XCTestCase {
                                                                  ["mechanism": ["other-key": false]]]
                                                             ]
                                                          ]))
-    }
-    
-    func testInitHubWithDefaultOptions_DoesNotEnableMetrics() {
-        let sut = fixture.getSut()
-        
-        sut.metrics.increment(key: "key")
-        sut.close()
-        
-        XCTAssertEqual(self.fixture.client.captureEnvelopeInvocations.count, 0)
-    }
-    
-    func testMetrics_IncrementOneValue() throws {
-        let options = fixture.options
-        options.enableMetrics = true
-        let sut = fixture.getSut(options)
-        
-        sut.metrics.increment(key: "key")
-        sut.flush(timeout: 1.0)
-        
-        let client = self.fixture.client
-        XCTAssertEqual(client.captureEnvelopeInvocations.count, 1)
-        
-        let envelope = try XCTUnwrap(client.captureEnvelopeInvocations.first)
-        XCTAssertNotNil(envelope.header.eventId)
-
-        // We only check if it's an envelope with a statsd envelope item.
-        // We validate the contents of the envelope in SentryMetricsClientTests
-        XCTAssertEqual(envelope.items.count, 1)
-        let envelopeItem = try XCTUnwrap(envelope.items.first)
-        XCTAssertEqual(envelopeItem.header.type, SentryEnvelopeItemTypeStatsd)
-        XCTAssertEqual(envelopeItem.header.contentType, "application/octet-stream")
-    }
-    
-    func testAddIncrementMetric_GetsLocalMetricsAggregatorFromCurrentSpan() throws {
-        let options = fixture.options
-        options.enableMetrics = true
-        let sut = fixture.getSut(options)
-        
-        let span = sut.startTransaction(name: fixture.transactionName, operation: fixture.transactionOperation, bindToScope: true)
-        let tracer = try XCTUnwrap(span as? SentryTracer)
-        
-        sut.metrics.increment(key: "key")
-        
-        let aggregator = tracer.getLocalMetricsAggregator()
-        
-        let metricsSummary = aggregator.serialize()
-        XCTAssertEqual(metricsSummary.count, 1)
-        
-        let bucket = try XCTUnwrap(metricsSummary["c:key"])
-        XCTAssertEqual(bucket.count, 1)
-        let metric = try XCTUnwrap(bucket.first)
-        XCTAssertEqual(metric["min"] as? Double, 1.0)
-        XCTAssertEqual(metric["max"] as? Double, 1.0)
-        XCTAssertEqual(metric["count"] as? Int, 1)
-        XCTAssertEqual(metric["sum"] as? Double, 1.0)
-    }
-    
-    func testAddIncrementMetric_AddsDefaultTags() throws {
-        let options = fixture.options
-        options.releaseName = "release1"
-        options.environment = "test"
-        options.enableMetrics = true
-        let sut = fixture.getSut(options)
-        
-        let span = sut.startTransaction(name: fixture.transactionName, operation: fixture.transactionOperation, bindToScope: true)
-        let tracer = try XCTUnwrap(span as? SentryTracer)
-        
-        sut.metrics.increment(key: "key", tags: ["my": "tag", "release": "overwritten"])
-        
-        let aggregator = tracer.getLocalMetricsAggregator()
-        
-        let metricsSummary = aggregator.serialize()
-        XCTAssertEqual(metricsSummary.count, 1)
-        
-        let bucket = try XCTUnwrap(metricsSummary["c:key"])
-        XCTAssertEqual(bucket.count, 1)
-        let metric = try XCTUnwrap(bucket.first)
-        XCTAssertEqual(metric["tags"] as? [String: String], ["my": "tag", "release": "overwritten", "environment": options.environment])
-    }
-    
-    func testAddIncrementMetric_ReleaseNameNil() throws {
-        let options = fixture.options
-        options.releaseName = nil
-        options.enableMetrics = true
-        let sut = fixture.getSut(options)
-        
-        let span = sut.startTransaction(name: fixture.transactionName, operation: fixture.transactionOperation, bindToScope: true)
-        let tracer = try XCTUnwrap(span as? SentryTracer)
-        
-        sut.metrics.increment(key: "key", tags: ["my": "tag"])
-        
-        let aggregator = tracer.getLocalMetricsAggregator()
-        
-        let metricsSummary = aggregator.serialize()
-        XCTAssertEqual(metricsSummary.count, 1)
-        
-        let bucket = try XCTUnwrap(metricsSummary["c:key"])
-        XCTAssertEqual(bucket.count, 1)
-        let metric = try XCTUnwrap(bucket.first)
-        XCTAssertEqual(metric["tags"] as? [String: String], ["my": "tag", "environment": options.environment])
-    }
-    
-    func testAddIncrementMetric_DefaultTagsDisabled() throws {
-        let options = fixture.options
-        options.releaseName = "release1"
-        options.environment = "test"
-        options.enableMetrics = true
-        options.enableDefaultTagsForMetrics = false
-        let sut = fixture.getSut(options)
-        
-        let span = sut.startTransaction(name: fixture.transactionName, operation: fixture.transactionOperation, bindToScope: true)
-        let tracer = try XCTUnwrap(span as? SentryTracer)
-        
-        sut.metrics.increment(key: "key", tags: ["my": "tag"])
-        
-        let aggregator = tracer.getLocalMetricsAggregator()
-        
-        let metricsSummary = aggregator.serialize()
-        XCTAssertEqual(metricsSummary.count, 1)
-        
-        let bucket = try XCTUnwrap(metricsSummary["c:key"])
-        XCTAssertEqual(bucket.count, 1)
-        let metric = try XCTUnwrap(bucket.first)
-        XCTAssertEqual(metric["tags"] as? [String: String], ["my": "tag"])
     }
     
     private func captureEventEnvelope(level: SentryLevel) {

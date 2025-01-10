@@ -16,13 +16,14 @@ public class TestClient: SentryClient {
     
     // Without this override we get a fatal error: use of unimplemented initializer
     // see https://stackoverflow.com/questions/28187261/ios-swift-fatal-error-use-of-unimplemented-initializer-init
-    public override init(options: Options, transportAdapter: SentryTransportAdapter, fileManager: SentryFileManager, deleteOldEnvelopeItems: Bool, threadInspector: SentryThreadInspector, random: SentryRandomProtocol, locale: Locale, timezone: TimeZone) {
+    public override init(options: Options, transportAdapter: SentryTransportAdapter, fileManager: SentryFileManager, deleteOldEnvelopeItems: Bool, threadInspector: SentryThreadInspector, debugImageProvider: SentryDebugImageProvider, random: SentryRandomProtocol, locale: Locale, timezone: TimeZone) {
         super.init(
             options: options,
             transportAdapter: transportAdapter,
             fileManager: fileManager,
             deleteOldEnvelopeItems: false,
             threadInspector: threadInspector,
+            debugImageProvider: debugImageProvider,
             random: random,
             locale: locale,
             timezone: timezone
@@ -105,6 +106,11 @@ public class TestClient: SentryClient {
     public override func captureCrash(_ event: Event, with session: SentrySession, with scope: Scope) -> SentryId {
         captureCrashEventWithSessionInvocations.record((event, session, scope))
         return SentryId()
+    }
+    
+    public var saveCrashTransactionInvocations = Invocations<(event: Event, scope: Scope)>()
+    public override func saveCrashTransaction(transaction: Transaction, scope: Scope) {
+        saveCrashTransactionInvocations.record((transaction, scope))
     }
     
     public var captureUserFeedbackInvocations = Invocations<UserFeedback>()

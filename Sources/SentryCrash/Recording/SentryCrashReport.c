@@ -1474,8 +1474,8 @@ sentrycrashreport_writeRecrashReport(
     char writeBuffer[1024];
     SentryCrashBufferedWriter bufferedWriter;
     static char tempPath[SentryCrashFU_MAX_PATH_LENGTH];
-    strncpy(tempPath, path, sizeof(tempPath) - 10);
-    strncpy(tempPath + strlen(tempPath) - 5, ".old", 5);
+    strlcpy(tempPath, path, sizeof(tempPath) - 10);
+    strlcpy(tempPath + strlen(tempPath) - 5, ".old", 5);
     SENTRY_ASYNC_SAFE_LOG_INFO("Writing recrash report to %s", path);
 
     if (rename(path, tempPath) < 0) {
@@ -1611,6 +1611,9 @@ writeScopeJson(const SentryCrashReportWriter *const writer)
         }
         if (scope->context) {
             addJSONElement(writer, "context", scope->context, false);
+        }
+        if (scope->traceContext) {
+            addJSONElement(writer, "traceContext", scope->traceContext, false);
         }
         if (scope->environment) {
             addJSONElement(writer, "environment", scope->environment, false);
