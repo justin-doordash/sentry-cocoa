@@ -76,7 +76,8 @@ NSString *const kSentryDefaultEnvironment = @"production";
         [SentryANRTrackingIntegration class], [SentryAutoBreadcrumbTrackingIntegration class],
         [SentryAutoSessionTrackingIntegration class], [SentryCoreDataTrackingIntegration class],
         [SentryFileIOTrackingIntegration class], [SentryNetworkTrackingIntegration class],
-        [SentrySwiftAsyncIntegration class], nil];
+        [SentrySwiftAsyncIntegration class], [SentryBeforeCrashIntegration class], 
+        nil];
 
 #if TARGET_OS_IOS && SENTRY_HAS_UIKIT
     if (@available(iOS 13.0, *)) {
