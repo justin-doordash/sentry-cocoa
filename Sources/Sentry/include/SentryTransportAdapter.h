@@ -3,8 +3,15 @@
 #import "SentryDiscardReason.h"
 #import "SentryTransport.h"
 
-@class SentryEnvelope, SentryEnvelopeItem, SentryEvent, SentrySession, SentryUserFeedback,
-    SentryAttachment, SentryTraceContext, SentryOptions;
+@class SentryAttachment;
+@class SentryEnvelope;
+@class SentryEnvelopeItem;
+@class SentryEvent;
+@class SentryFeedback;
+@class SentryOptions;
+@class SentrySession;
+@class SentryTraceContext;
+@class SentryUserFeedback;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -38,6 +45,8 @@ SENTRY_NO_INIT
       withSession:(SentrySession *)session
      traceContext:(nullable SentryTraceContext *)traceContext
       attachments:(NSArray<SentryAttachment *> *)attachments;
+
+- (void)storeEvent:(SentryEvent *)event traceContext:(nullable SentryTraceContext *)traceContext;
 
 - (void)sendUserFeedback:(SentryUserFeedback *)userFeedback NS_SWIFT_NAME(send(userFeedback:));
 

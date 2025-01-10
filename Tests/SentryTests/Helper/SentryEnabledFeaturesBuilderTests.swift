@@ -15,7 +15,6 @@ final class SentryEnabledFeaturesBuilderTests: XCTestCase {
         options.enablePerformanceV2 = true
         options.enableTimeToFullDisplayTracing = true
         options.swiftAsyncStacktraces = true
-        options.enableMetrics = true
 
 #if os(iOS) || os(macOS) || targetEnvironment(macCatalyst)
         options.enableAppLaunchProfiling = true
@@ -26,6 +25,10 @@ final class SentryEnabledFeaturesBuilderTests: XCTestCase {
         options.enablePreWarmedAppStartTracing = true
 #endif // canImport(UIKit)
 #endif // os(iOS) || os(tvOS)
+      
+#if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
+        options.enableAppHangTrackingV2 = true
+#endif //os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
         
         let features = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: options)
         
@@ -33,7 +36,6 @@ final class SentryEnabledFeaturesBuilderTests: XCTestCase {
         XCTAssert(features.contains("performanceV2"))
         XCTAssert(features.contains("timeToFullDisplayTracing"))
         XCTAssert(features.contains("swiftAsyncStacktraces"))
-        XCTAssert(features.contains("metrics"))
         
 #if os(iOS) || os(macOS) || targetEnvironment(macCatalyst)
         XCTAssert(features.contains("appLaunchProfiling"))
@@ -44,5 +46,20 @@ final class SentryEnabledFeaturesBuilderTests: XCTestCase {
         XCTAssert(features.contains("preWarmedAppStartTracing"))
 #endif // canImport(UIKit)
 #endif // os(iOS) || os(tvOS)
+        
+#if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
+        XCTAssert(features.contains("appHangTrackingV2"))
+#endif //os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
+        
+    }
+    
+    func testEnablePersistingTracesWhenCrashing() {
+        let options = Options()
+        
+        options.enablePersistingTracesWhenCrashing = true
+        
+        let features = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: options)
+        
+        XCTAssert(features.contains("persistingTracesWhenCrashing"))
     }
 }

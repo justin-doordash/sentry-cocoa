@@ -95,7 +95,7 @@ class SentryTracerTests: XCTestCase {
         }
         #endif // os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
         
-        func getSut(waitForChildren: Bool = true, idleTimeout: TimeInterval = 0.0) -> SentryTracer {
+        func getSut(waitForChildren: Bool = true, idleTimeout: TimeInterval = 0.0, finishMustBeCalled: Bool = false) -> SentryTracer {
             let tracer = hub.startTransaction(
                 with: transactionContext,
                 bindToScope: false,
@@ -104,6 +104,7 @@ class SentryTracerTests: XCTestCase {
                     $0.waitForChildren = waitForChildren
                     $0.timerFactory = self.timerFactory
                     $0.idleTimeout = idleTimeout
+                    $0.finishMustBeCalled = finishMustBeCalled
                 }))
             return tracer
         }
@@ -349,6 +350,18 @@ class SentryTracerTests: XCTestCase {
 
         fixture.timerFactory.fire()
     }
+    
+    func testDeadlineTimerForManualTransaction_NoWorkQueuedOnMainQueue() {
+        let sut = fixture.getSut(waitForChildren: false, idleTimeout: 0.0)
+        
+        let invocationsBeforeFinish = fixture.dispatchQueue.blockOnMainInvocations.count
+        
+        sut.finish()
+        
+        let invocationsAfterFinish = fixture.dispatchQueue.blockOnMainInvocations.count
+        
+        XCTAssertEqual(invocationsBeforeFinish, invocationsAfterFinish)
+    }
 
     func testFramesofSpans_SetsDebugMeta() {
         let sut = fixture.getSut()
@@ -362,6 +375,7 @@ class SentryTracerTests: XCTestCase {
 
         XCTAssertEqual(transaction?.debugMeta?.count ?? 0, 1)
         XCTAssertEqual(transaction?.debugMeta?.first, TestData.debugImage)
+        XCTAssertEqual(1, debugImageProvider.getDebugImagesFromCacheForFramesInvocations.count, "Tracer must retrieve debug images from cache.")
     }
 
     func testDeadlineTimer_OnlyForAutoTransactions() {
@@ -980,7 +994,9 @@ class SentryTracerTests: XCTestCase {
         let serializedTransaction = fixture.hub.capturedEventsWithScopes.first?.event.serialize()
         
         let debugMeta = serializedTransaction?["debug_meta"] as? [String: Any]
-        XCTAssertEqual(debugMeta?.count, fixture.debugImageProvider.getDebugImagesCrashed(false).count)
+        XCTAssertEqual(debugMeta?.count, fixture.debugImageProvider.getDebugImagesFromCache().count)
+        
+        XCTAssertEqual(2, fixture.debugImageProvider.getDebugImagesFromCacheInvocations.count, "The tracer must retrieve all the debug images from the cache, cause otherwise it can cause app hangs.")
     }
     
     func testNoAppStartTransaction_AddsNoDebugMeta() {
@@ -1279,6 +1295,14 @@ class SentryTracerTests: XCTestCase {
     }
 #endif
     
+    func testFinishShouldBeCalled_Timeout_NotCaptured() {
+        fixture.dispatchQueue.blockBeforeMainBlock = { true }
+        
+        let sut = fixture.getSut(finishMustBeCalled: true)
+        fixture.timerFactory.fire()
+        assertTransactionNotCaptured(sut)
+    }
+    
     @available(*, deprecated)
     func testSetExtra_ForwardsToSetData() {
         let sut = fixture.getSut()
@@ -1286,6 +1310,88 @@ class SentryTracerTests: XCTestCase {
         
         let data = sut.data as [String: Any]
         XCTAssertEqual(0, data["key"] as? Int)
+    }
+    
+    func testFinishForCrash_WithWaitForChildren_GetsFinished() {
+        let sut = fixture.getSut()
+        let child = sut.startChild(operation: "ui.load")
+        
+        advanceTime(bySeconds: 1.0)
+        
+        sut.finishForCrash()
+        
+        let currentTime = fixture.currentDateProvider.date()
+        
+        XCTAssertTrue(sut.isFinished)
+        XCTAssertEqual(currentTime, sut.timestamp)
+        
+        XCTAssertTrue(child.isFinished)
+        XCTAssertEqual(currentTime, child.timestamp)
+        XCTAssertEqual(SentrySpanStatus.internalError, child.status)
+        
+        XCTAssertEqual(SentrySpanStatus.internalError, sut.status)
+        
+        XCTAssertEqual(1, fixture.client.saveCrashTransactionInvocations.count)
+    }
+    
+    func testFinishForCrash_CallFinishTwice_OnlyOnceSaved() {
+        let sut = fixture.getSut()
+        _ = sut.startChild(operation: "ui.load")
+        
+        sut.finishForCrash()
+        sut.finishForCrash()
+        
+        XCTAssertEqual(1, fixture.client.saveCrashTransactionInvocations.count)
+    }
+
+    func testFinishForCrash_DoesNotCancelDeadlineTimer() throws {
+        fixture.dispatchQueue.blockBeforeMainBlock = { true }
+        
+        let sut = fixture.getSut()
+        _ = sut.startChild(operation: fixture.transactionOperation)
+        let timer = try XCTUnwrap(Dynamic(sut).deadlineTimer.asObject as? Timer)
+        
+        sut.finishForCrash()
+        
+        XCTAssertTrue(timer.isValid)
+    }
+
+    func testFinishForCrash_DoesNotCallFinishCallback() throws {
+        let callbackExpectation = expectation(description: "FinishCallback called")
+        callbackExpectation.isInverted = true
+        
+        let sut = fixture.getSut(idleTimeout: fixture.idleTimeout)
+        
+        sut.finishCallback = { tracer in
+            XCTAssertEqual(sut, tracer)
+            callbackExpectation.fulfill()
+        }
+        
+        sut.finishForCrash()
+        
+        wait(for: [callbackExpectation], timeout: 0.01)
+    }
+    
+    func testFinishForCrash_DoesNotCallTracerDidFinish() throws {
+        let delegate = TracerDelegate()
+
+        let sut = fixture.getSut()
+        sut.delegate = delegate
+        
+        sut.finishForCrash()
+        
+        XCTAssertFalse(delegate.tracerDidFinishCalled)
+    }
+    
+    func testFinishForCrash_DoesNotSetSpanOnScopeToNil() throws {
+        
+        let sut = fixture.getSut()
+        
+        fixture.hub.scope.span = sut
+        
+        sut.finishForCrash()
+        
+        XCTAssertNotNil(fixture.hub.scope.span)
     }
 
     private func advanceTime(bySeconds: TimeInterval) {

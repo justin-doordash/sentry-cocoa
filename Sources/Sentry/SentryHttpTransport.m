@@ -124,7 +124,7 @@
     envelope = [self.envelopeRateLimit removeRateLimitedItems:envelope];
 
     if (envelope.items.count == 0) {
-        SENTRY_LOG_DEBUG(@"RateLimit is active for all envelope items.");
+        SENTRY_LOG_WARN(@"RateLimit is active for all envelope items.");
         return;
     }
 
@@ -144,6 +144,11 @@
         }
         [weakSelf sendAllCachedEnvelopes];
     }];
+}
+
+- (void)storeEnvelope:(SentryEnvelope *)envelope
+{
+    [self.fileManager storeEnvelope:envelope];
 }
 
 - (void)recordLostEvent:(SentryDataCategory)category reason:(SentryDiscardReason)reason
@@ -232,6 +237,8 @@
 - (void)envelopeItemDropped:(SentryEnvelopeItem *)envelopeItem
                withCategory:(SentryDataCategory)dataCategory;
 {
+    SENTRY_LOG_WARN(@"Envelope item dropped due to exceeding rate limit. Category: %@",
+        nameForSentryDataCategory(dataCategory));
     [self recordLostEvent:dataCategory reason:kSentryDiscardReasonRateLimitBackoff];
     [self recordLostSpans:envelopeItem reason:kSentryDiscardReasonRateLimitBackoff];
 }
@@ -282,8 +289,12 @@
     SENTRY_LOG_DEBUG(@"sendAllCachedEnvelopes start.");
 
     @synchronized(self) {
-        if (self.isSending || ![self.requestManager isReady]) {
+        if (self.isSending) {
             SENTRY_LOG_DEBUG(@"Already sending.");
+            return;
+        }
+        if (![self.requestManager isReady]) {
+            SENTRY_LOG_DEBUG(@"Request manager not ready.");
             return;
         }
         self.isSending = YES;

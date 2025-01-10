@@ -4,6 +4,7 @@
 
 #    import "SentryClient+Private.h"
 #    import "SentryDateUtils.h"
+#    import "SentryDebugImageProvider+HybridSDKs.h"
 #    import "SentryDependencyContainer.h"
 #    import "SentryDevice.h"
 #    import "SentryEnvelope.h"
@@ -312,7 +313,7 @@ SentryEnvelope *_Nullable sentry_continuousProfileChunkEnvelope(
     const auto chunkID = [[SentryId alloc] init];
     const auto payload = sentry_serializedContinuousProfileChunk(
         profileID, chunkID, profileState, metricProfilerState,
-        [SentryDependencyContainer.sharedInstance.debugImageProvider getDebugImagesCrashed:NO],
+        [SentryDependencyContainer.sharedInstance.debugImageProvider getDebugImagesFromCache],
         SentrySDK.currentHub
 #    if SENTRY_HAS_UIKIT
         ,
@@ -346,22 +347,18 @@ SentryEnvelope *_Nullable sentry_continuousProfileChunkEnvelope(
     return [[SentryEnvelope alloc] initWithId:chunkID singleItem:envelopeItem];
 }
 
-SentryEnvelopeItem *_Nullable sentry_traceProfileEnvelopeItem(
+SentryEnvelopeItem *_Nullable sentry_traceProfileEnvelopeItem(SentryHub *hub,
+    SentryProfiler *profiler, NSDictionary<NSString *, id> *profilingData,
     SentryTransaction *transaction, NSDate *startTimestamp)
 {
-    SENTRY_LOG_DEBUG(@"Creating profiling envelope item");
-    const auto profiler = sentry_profilerForFinishedTracer(transaction.trace.internalID);
-    if (!profiler) {
-        return nil;
-    }
-
+    const auto images =
+        [SentryDependencyContainer.sharedInstance.debugImageProvider getDebugImagesFromCache];
     const auto payload = sentry_serializedTraceProfileData(
-        [profiler.state copyProfilingData], transaction.startSystemTime, transaction.endSystemTime,
+        profilingData, transaction.startSystemTime, transaction.endSystemTime,
         sentry_profilerTruncationReasonName(profiler.truncationReason),
         [profiler.metricProfiler serializeTraceProfileMetricsBetween:transaction.startSystemTime
                                                                  and:transaction.endSystemTime],
-        [SentryDependencyContainer.sharedInstance.debugImageProvider getDebugImagesCrashed:NO],
-        transaction.trace.hub
+        images, hub
 #    if SENTRY_HAS_UIKIT
         ,
         profiler.screenFrameData
@@ -409,7 +406,7 @@ NSMutableDictionary<NSString *, id> *_Nullable sentry_collectProfileDataHybridSD
         endSystemTime, sentry_profilerTruncationReasonName(profiler.truncationReason),
         [profiler.metricProfiler serializeTraceProfileMetricsBetween:startSystemTime
                                                                  and:endSystemTime],
-        [SentryDependencyContainer.sharedInstance.debugImageProvider getDebugImagesCrashed:NO], hub
+        [SentryDependencyContainer.sharedInstance.debugImageProvider getDebugImagesFromCache], hub
 #    if SENTRY_HAS_UIKIT
         ,
         profiler.screenFrameData

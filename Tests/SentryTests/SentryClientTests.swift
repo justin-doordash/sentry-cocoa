@@ -13,7 +13,7 @@ class SentryClientTest: XCTestCase {
         let transport: TestTransport
         let transportAdapter: TestTransportAdapter
         
-        let debugImageBuilder = SentryDebugImageProvider()
+        let debugImageProvider = TestDebugImageProvider()
         let threadInspector = TestThreadInspector.instance
         
         let session: SentrySession
@@ -63,6 +63,8 @@ class SentryClientTest: XCTestCase {
             
             crashWrapper.internalFreeMemorySize = 123_456
             crashWrapper.internalAppMemorySize = 234_567
+            
+            debugImageProvider.debugImages = [TestData.debugImage]
 
             #if os(iOS) || targetEnvironment(macCatalyst)
             SentryDependencyContainer.sharedInstance().uiDeviceWrapper = deviceWrapper
@@ -87,6 +89,7 @@ class SentryClientTest: XCTestCase {
                     fileManager: fileManager,
                     deleteOldEnvelopeItems: false,
                     threadInspector: threadInspector,
+                    debugImageProvider: debugImageProvider,
                     random: random,
                     locale: locale,
                     timezone: timezone
@@ -525,6 +528,18 @@ class SentryClientTest: XCTestCase {
         try assertValidErrorEvent(actual, error)
     }
     
+    func testCaptureEvent_RetrievesDebugMetaFromCache() throws {
+        let event = Event(level: SentryLevel.warning)
+        
+        let eventId = fixture.getSut().capture(event: event)
+        
+        eventId.assertIsNotEmpty()
+
+        let actual = try lastSentEvent()
+        XCTAssertNotNil(actual.debugMeta)
+        XCTAssertEqual(1, fixture.debugImageProvider.getDebugImagesFromCacheForThreadsInvocations.count, "Client must retrieve debug images from cache.")
+    }
+    
     func testCaptureErrorWithEnum() throws {
         let eventId = fixture.getSut().capture(error: TestError.invalidTest)
 
@@ -895,6 +910,18 @@ class SentryClientTest: XCTestCase {
         SentryDependencyContainer.sharedInstance().application = app
         
         let event = TestData.event
+        fixture.getSut().capture(event: event)
+        let actual = try lastSentEvent()
+        let inForeground = actual.context?["app"]?["in_foreground"] as? Bool
+        XCTAssertEqual(inForeground, true)
+    }
+    
+    func testCaptureTransaction_WithAppStateInForegroudWhenAppIsInForeground() throws {
+        let app = TestSentryUIApplication()
+        app.applicationState = .active
+        SentryDependencyContainer.sharedInstance().application = app
+        
+        let event = fixture.transaction
         fixture.getSut().capture(event: event)
         let actual = try lastSentEvent()
         let inForeground = actual.context?["app"]?["in_foreground"] as? Bool
@@ -1734,6 +1761,34 @@ class SentryClientTest: XCTestCase {
         wait(for: [callbackExpectation], timeout: 0.1)
     }
     
+    func testSaveCrashTransaction_StoresEventWithTraceContext() throws {
+        let transaction = fixture.transaction
+        let client = fixture.getSut()
+        client.saveCrashTransaction(transaction: transaction, scope: fixture.scope)
+        
+        XCTAssertEqual(fixture.transportAdapter.storeEventInvocations.first?.traceContext?.traceId, transaction.trace.traceId)
+    }
+    
+    func testSaveCrashTransaction_StoresEventWithScope() throws {
+        let transaction = fixture.transaction
+        let client = fixture.getSut()
+        client.saveCrashTransaction(transaction: transaction, scope: fixture.scope)
+
+        let savedEvent = try XCTUnwrap(fixture.transportAdapter.storeEventInvocations.first?.event)
+        
+        XCTAssertEqual(["key": "value"], savedEvent.tags)
+    }
+    
+    func testSaveCrashTransaction_DisabledClient_StoresNothing() throws {
+        let transaction = fixture.transaction
+        
+        let client = fixture.getSutDisabledSdk()
+        
+        client.saveCrashTransaction(transaction: transaction, scope: fixture.scope)
+
+        XCTAssertEqual(0, fixture.transportAdapter.storeEventInvocations.count)
+    }
+    
     func testCaptureTransactionEvent_sendTraceState() {
         let transaction = fixture.transaction
         let client = fixture.getSut()
@@ -2004,8 +2059,9 @@ private extension SentryClientTest {
     }
     
     private func assertValidDebugMeta(actual: [DebugMeta]?, forThreads threads: [SentryThread]?) {
-        let debugMetas = fixture.debugImageBuilder.getDebugImages(for: threads ?? [], isCrash: false)
+        let debugMetas = fixture.debugImageProvider.getDebugImagesFromCacheForThreads(threads: threads ?? [])
         
+        XCTAssertEqual(debugMetas.count, actual?.count)
         XCTAssertEqual(debugMetas, actual ?? [])
     }
     

@@ -1,6 +1,7 @@
 #import "SentryCrashIntegration.h"
 #import "SentryCrashInstallationReporter.h"
 
+#import "SentryCrashC.h"
 #include "SentryCrashMonitor_Signal.h"
 #import "SentryCrashWrapper.h"
 #import "SentryDispatchQueueWrapper.h"
@@ -11,6 +12,8 @@
 #import "SentrySDK+Private.h"
 #import "SentryScope+Private.h"
 #import "SentrySessionCrashedHandler.h"
+#import "SentrySpan+Private.h"
+#import "SentryTracer.h"
 #import "SentryWatchdogTerminationLogic.h"
 #import <SentryAppStateManager.h>
 #import <SentryClient+Private.h>
@@ -24,11 +27,26 @@
 #    import <UIKit/UIKit.h>
 #endif
 
+#if TARGET_OS_OSX
+#    import "SentryUncaughtNSExceptions.h"
+#endif // TARGET_OS_OSX
+
 static dispatch_once_t installationToken = 0;
 static SentryCrashInstallationReporter *installation = nil;
 
 static NSString *const DEVICE_KEY = @"device";
 static NSString *const LOCALE_KEY = @"locale";
+
+void
+sentry_finishAndSaveTransaction(void)
+{
+    SentrySpan *span = SentrySDK.currentHub.scope.span;
+
+    if (span != nil) {
+        SentryTracer *tracer = [span tracer];
+        [tracer finishForCrash];
+    }
+}
 
 @interface SentryCrashIntegration ()
 
@@ -93,10 +111,22 @@ static NSString *const LOCALE_KEY = @"locale";
     enableSigtermReporting = options.enableSigtermReporting;
 #endif // !TARGET_OS_WATCH
 
+    BOOL enableUncaughtNSExceptionReporting = NO;
+#if TARGET_OS_OSX
+    if (options.enableSwizzling) {
+        enableUncaughtNSExceptionReporting = options.enableUncaughtNSExceptionReporting;
+    }
+#endif // TARGET_OS_OSX
+
     [self startCrashHandler:options.cacheDirectoryPath
-        enableSigtermReporting:enableSigtermReporting];
+                   enableSigtermReporting:enableSigtermReporting
+        enableReportingUncaughtExceptions:enableUncaughtNSExceptionReporting];
 
     [self configureScope];
+
+    if (options.enablePersistingTracesWhenCrashing) {
+        [self configureTracingWhenCrashing];
+    }
 
     return YES;
 }
@@ -107,7 +137,8 @@ static NSString *const LOCALE_KEY = @"locale";
 }
 
 - (void)startCrashHandler:(NSString *)cacheDirectory
-    enableSigtermReporting:(BOOL)enableSigtermReporting
+               enableSigtermReporting:(BOOL)enableSigtermReporting
+    enableReportingUncaughtExceptions:(BOOL)enableReportingUncaughtExceptions
 {
     void (^block)(void) = ^{
         BOOL canSendReports = NO;
@@ -127,6 +158,13 @@ static NSString *const LOCALE_KEY = @"locale";
         sentrycrashcm_setEnableSigtermReporting(enableSigtermReporting);
 
         [installation install:cacheDirectory];
+
+#if TARGET_OS_OSX
+        if (enableReportingUncaughtExceptions) {
+            [SentryUncaughtNSExceptions configureCrashOnExceptions];
+            [SentryUncaughtNSExceptions swizzleNSApplicationReportException];
+        }
+#endif // TARGET_OS_OSX
 
         // We need to send the crashed event together with the crashed session in the same envelope
         // to have proper statistics in release health. To achieve this we need both synchronously
@@ -172,6 +210,8 @@ static NSString *const LOCALE_KEY = @"locale";
         [installation uninstall];
         installationToken = 0;
     }
+
+    sentrycrash_setSaveTransaction(NULL);
 
     [NSNotificationCenter.defaultCenter removeObserver:self
                                                   name:NSCurrentLocaleDidChangeNotification
@@ -221,6 +261,11 @@ static NSString *const LOCALE_KEY = @"locale";
 
         [scope setContextValue:device forKey:DEVICE_KEY];
     }];
+}
+
+- (void)configureTracingWhenCrashing
+{
+    sentrycrash_setSaveTransaction(&sentry_finishAndSaveTransaction);
 }
 
 @end
