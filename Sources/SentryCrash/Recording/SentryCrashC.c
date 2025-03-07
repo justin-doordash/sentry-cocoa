@@ -61,7 +61,6 @@ static void (*g_saveViewHierarchy)(const char *) = 0;
 static void (*g_beforeCrashCallback)(const char *) = 0;
 
 static void (*g_saveTransaction)(void) = 0;
-static void (*g_beforeCrashCallback)(const char *) = 0;
 
 // ============================================================================
 #pragma mark - Utility -
@@ -120,10 +119,6 @@ onCrash(struct SentryCrash_MonitorContext *monitorContext)
 
     if (g_saveTransaction) {
         g_saveTransaction();
-    }
-
-    if (g_beforeCrashCallback) {
-        g_beforeCrashCallback(monitorContext->eventID);
     }
 }
 

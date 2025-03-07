@@ -135,10 +135,6 @@ typedef void (^SentryBeforeCrashCallback)(NSString *_Nonnull eventID);
  */
 typedef BOOL (^SentryBeforeCaptureViewHierarchyCallback)(SentryEvent *_Nonnull event);
 
-/* A callback to be notified right before the program terminated with a crash.
- */
-typedef void (^SentryBeforeCrashCallback)(NSString *_Nonnull eventID);
-
 /**
  * A callback to be notified when the last program execution terminated with a crash.
  */
