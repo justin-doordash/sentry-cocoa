@@ -1,6 +1,7 @@
 #import "SentryNSFileManagerSwizzling.h"
 #import "SentryLog.h"
 #import "SentrySwizzle.h"
+#import "SentryTraceOrigin.h"
 #import <objc/runtime.h>
 
 @interface SentryNSFileManagerSwizzling ()
@@ -23,8 +24,15 @@
 {
     self.tracker = tracker;
 
+    if (!options.enableSwizzling) {
+        SENTRY_LOG_DEBUG(
+            @"Auto-tracking of NSFileManager is disabled because enableSwizzling is false");
+        return;
+    }
+
     if (!options.experimental.enableFileManagerSwizzling) {
-        SENTRY_LOG_DEBUG(@"Experimental auto-tracking of FileManager is disabled")
+        SENTRY_LOG_DEBUG(@"Auto-tracking of NSFileManager is disabled because "
+                         @"enableFileManagerSwizzling is false");
         return;
     }
 
@@ -59,6 +67,7 @@
                     measureNSFileManagerCreateFileAtPath:path
                                                     data:data
                                               attributes:attributes
+                                                  origin:SentryTraceOriginAutoNSData
                                                   method:^BOOL(NSString *path, NSData *data,
                                                       NSDictionary<NSFileAttributeKey, id>
                                                           *attributes) {
@@ -73,7 +82,7 @@
 
 + (void)unswizzle
 {
-#if TEST || TESTCI
+#if SENTRY_TEST || SENTRY_TEST_CI
     // Unswizzling is only supported in test targets as it is considered unsafe for production.
     if (@available(iOS 18, macOS 15, tvOS 18, *)) {
         SEL createFileAtPathContentsAttributes
@@ -81,7 +90,7 @@
         SentryUnswizzleInstanceMethod(NSFileManager.class, createFileAtPathContentsAttributes,
             (void *)createFileAtPathContentsAttributes);
     }
-#endif // TEST || TESTCI
+#endif // SENTRY_TEST || SENTRY_TEST_CI
 }
 #pragma clang diagnostic pop
 @end

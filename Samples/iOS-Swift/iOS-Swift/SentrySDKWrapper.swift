@@ -1,3 +1,5 @@
+// swiftlint:disable file_length
+
 import Sentry
 import UIKit
 
@@ -126,23 +128,24 @@ extension SentrySDKWrapper {
     var layoutOffset: UIOffset { UIOffset(horizontal: 25, vertical: 75) }
     
     func configureFeedbackWidget(config: SentryUserFeedbackWidgetConfiguration) {
-        if args.contains("--io.sentry.feedback.auto-inject-widget") {
-            if Locale.current.languageCode == "ar" { // arabic
-                config.labelText = "﷽"
-            } else if Locale.current.languageCode == "ur" { // urdu
-                config.labelText = "نستعلیق"
-            } else if Locale.current.languageCode == "he" { // hebrew
-                config.labelText = "עִבְרִית‎"
-            } else if Locale.current.languageCode == "hi" { // Hindi
-                config.labelText = "नागरि"
-            } else {
-                config.labelText = "Report Jank"
-            }
-            config.widgetAccessibilityLabel = "io.sentry.iOS-Swift.button.report-jank"
-            config.layoutUIOffset = layoutOffset
-        } else {
+        guard !args.contains("--io.sentry.feedback.no-auto-inject-widget") else {
             config.autoInject = false
+            return
         }
+        
+        if Locale.current.languageCode == "ar" { // arabic
+            config.labelText = "﷽"
+        } else if Locale.current.languageCode == "ur" { // urdu
+            config.labelText = "نستعلیق"
+        } else if Locale.current.languageCode == "he" { // hebrew
+            config.labelText = "עִבְרִית‎"
+        } else if Locale.current.languageCode == "hi" { // Hindi
+            config.labelText = "नागरि"
+        } else {
+            config.labelText = "Report Jank"
+        }
+        config.layoutUIOffset = layoutOffset
+        
         if args.contains("--io.sentry.feedback.no-widget-text") {
             config.labelText = nil
         }
@@ -152,11 +155,11 @@ extension SentrySDKWrapper {
     }
     
     func configureFeedbackForm(config: SentryUserFeedbackFormConfiguration) {
+        config.useSentryUser = !args.contains("--io.sentry.feedback.dont-use-sentry-user")
         config.formTitle = "Jank Report"
         config.isEmailRequired = args.contains("--io.sentry.feedback.require-email")
         config.isNameRequired = args.contains("--io.sentry.feedback.require-name")
         config.submitButtonLabel = "Report that jank"
-        config.addScreenshotButtonLabel = "Show us the jank"
         config.removeScreenshotButtonLabel = "Oof too nsfl"
         config.cancelButtonLabel = "What, me worry?"
         config.messagePlaceholder = "Describe the nature of the jank. Its essence, if you will."
@@ -181,7 +184,7 @@ extension SentrySDKWrapper {
             fontFamily = "ChalkboardSE-Regular"
         }
         config.fontFamily = fontFamily
-        config.outlineStyle = .init(outlineColor: .purple)
+        config.outlineStyle = .init(color: .purple)
         config.foreground = .purple
         config.background = .init(red: 0.95, green: 0.9, blue: 0.95, alpha: 1)
         config.submitBackground = .orange
@@ -199,7 +202,6 @@ extension SentrySDKWrapper {
             return
         }
         
-        config.useSentryUser = args.contains("--io.sentry.feedback.use-sentry-user")
         config.animations = !args.contains("--io.sentry.feedback.no-animations")
         config.useShakeGesture = true
         config.showFormForScreenshots = true
@@ -211,60 +213,96 @@ extension SentrySDKWrapper {
     
     func configureHooks(config: SentryUserFeedbackConfiguration) {
         config.onFormOpen = {
-            createHookFile(name: "onFormOpen")
+            updateHookMarkers(forEvent: "onFormOpen")
         }
         config.onFormClose = {
-            createHookFile(name: "onFormClose")
+            updateHookMarkers(forEvent: "onFormClose")
         }
         config.onSubmitSuccess = { info in
             let name = info["name"] ?? "$shakespearean_insult_name"
             let alert = UIAlertController(title: "Thanks?", message: "We have enough jank of our own, we really didn't need yours too, \(name).", preferredStyle: .alert)
             alert.addAction(.init(title: "Deal with it 🕶️", style: .default))
             UIApplication.shared.delegate?.window??.rootViewController?.present(alert, animated: true)
-            createHookFile(name: "onSubmitSuccess")
+            
+            // if there's a screenshot's Data in this dictionary, JSONSerialization crashes _even though_ there's a `try?`, so we'll write the base64 encoding of it
+            var infoToWriteToFile = info
+            if let attachments = info["attachments"] as? [Any], let screenshot = attachments.first as? Data {
+                infoToWriteToFile["attachments"] = [screenshot.base64EncodedString()]
+            }
+            
+            let jsonData = (try? JSONSerialization.data(withJSONObject: infoToWriteToFile, options: .sortedKeys)) ?? Data()
+            updateHookMarkers(forEvent: "onSubmitSuccess", with: jsonData.base64EncodedString())
         }
         config.onSubmitError = { error in
             let alert = UIAlertController(title: "D'oh", message: "You tried to report jank, and encountered more jank. The jank has you now: \(error).", preferredStyle: .alert)
             alert.addAction(.init(title: "Derp", style: .default))
             UIApplication.shared.delegate?.window??.rootViewController?.present(alert, animated: true)
-            createHookFile(name: "onSubmitError")
+            let nserror = error as NSError
+            let missingFieldsSorted = (nserror.userInfo["missing_fields"] as? [String])?.sorted().joined(separator: ";") ?? ""
+            updateHookMarkers(forEvent: "onSubmitError", with: "\(nserror.domain);\(nserror.code);\(nserror.localizedDescription);\(missingFieldsSorted)")
         }
     }
     
-    func createHookFile(name: String) {
+    func updateHookMarkers(forEvent name: String, with contents: String? = nil) {
         guard let appSupportDirectory = NSSearchPathForDirectoriesInDomains(.applicationSupportDirectory, .userDomainMask, true).first else {
             print("[iOS-Swift] Couldn't retrieve path to application support directory.")
             return
         }
+        
         let fm = FileManager.default
         let dir = "\(appSupportDirectory)/io.sentry/feedback"
-        do {
-            try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        } catch {
-            print("[iOS-Swift] Couldn't create directory structure for user feedback form hook marker files: \(error).")
-            return
+        let isDirectory = UnsafeMutablePointer<ObjCBool>.allocate(capacity: 1)
+        isDirectory.initialize(to: ObjCBool(false))
+        let exists = fm.fileExists(atPath: dir, isDirectory: isDirectory)
+        if exists, !isDirectory.pointee.boolValue {
+            print("[iOS-Swift] Found a file named \(dir) which is not a directory. Removing it...")
+            do {
+                try fm.removeItem(atPath: dir)
+            } catch {
+                print("[iOS-Swift] Couldn't remove existing file \(dir): \(error).")
+                return
+            }
+        } else if !exists {
+            do {
+                try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            } catch {
+                print("[iOS-Swift] Couldn't create directory structure for user feedback form hook marker files: \(error).")
+                return
+            }
         }
-        let path = "\(dir)/\(name)"
-        if !fm.createFile(atPath: path, contents: nil) {
+        
+        createHookFile(path: "\(dir)/\(name)", contents: contents)
+        
+        switch name {
+        case "onFormOpen": removeHookFile(path: "\(dir)/onFormClose")
+        case "onFormClose": removeHookFile(path: "\(dir)/onFormOpen")
+        case "onSubmitSuccess": removeHookFile(path: "\(dir)/onSubmitError")
+        case "onSubmitError": removeHookFile(path: "\(dir)/onSubmitSuccess")
+        default: fatalError("Unexpected marker file name")
+        }
+    }
+    
+    func createHookFile(path: String, contents: String?) {
+        if let contents = contents {
+            do {
+                try contents.write(to: URL(fileURLWithPath: path), atomically: false, encoding: .utf8)
+            } catch {
+                print("[iOS-Swift] Couldn't write contents into user feedback form hook marker file at \(path).")
+            }
+        } else if !FileManager.default.createFile(atPath: path, contents: nil) {
             print("[iOS-Swift] Couldn't create user feedback form hook marker file at \(path).")
         } else {
             print("[iOS-Swift] Created user feedback form hook marker file at \(path).")
         }
-        
-        func removeHookFile(name: String) {
-            let path = "\(dir)/\(name)"
-            do {
-                try fm.removeItem(atPath: path)
-            } catch {
-                print("[iOS-Swift] Couldn't remove user feedback form hook marker file \(path): \(error).")
-            }
-        }
-        switch name {
-        case "onFormOpen": removeHookFile(name: "onFormClose")
-        case "onFormClose": removeHookFile(name: "onFormOpen")
-        case "onSubmitSuccess": removeHookFile(name: "onSubmitError")
-        case "onSubmitError": removeHookFile(name: "onSubmitSuccess")
-        default: fatalError("Unexpected marker file name")
+    }
+    
+    func removeHookFile(path: String) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: path) else { return }
+        do {
+            try fm.removeItem(atPath: path)
+        } catch {
+            print("[iOS-Swift] Couldn't remove user feedback form hook marker file \(path): \(error).")
         }
     }
 }
@@ -382,3 +420,5 @@ extension SentrySDKWrapper {
     
     var enableAppLaunchProfiling: Bool { args.contains("--profile-app-launches") }
 }
+
+// swiftlint:enable file_length

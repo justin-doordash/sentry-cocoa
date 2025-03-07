@@ -16,7 +16,9 @@ class SentrySDKTests: XCTestCase {
         let hub: SentryHub
         let error: Error = NSError(domain: "", code: 0, userInfo: [NSLocalizedDescriptionKey: "Object does not exist"])
         let exception = NSException(name: NSExceptionName("My Custom exeption"), reason: "User clicked the button", userInfo: nil)
+        @available(*, deprecated, message: "SentryUserFeedback is deprecated in favor of SentryFeedback.")
         let userFeedback: UserFeedback
+        let feedback: SentryFeedback
         let currentDate = TestCurrentDateProvider()
         
         let scopeBlock: (Scope) -> Void = { scope in
@@ -33,6 +35,7 @@ class SentrySDKTests: XCTestCase {
         let operation = "ui.load"
         let transactionName = "Load Main Screen"
         
+        @available(*, deprecated, message: "This is marked deprecated as a workaround until we can remove SentryUserFeedback in favor of SentryFeedback. When SentryUserFeedback is removed, this deprecation annotation can be removed.")
         init() {
             SentryDependencyContainer.sharedInstance().dateProvider = currentDate
             
@@ -53,11 +56,14 @@ class SentrySDKTests: XCTestCase {
             userFeedback.comments = "Again really?"
             userFeedback.email = "tim@apple.com"
             userFeedback.name = "Tim Apple"
+            
+            feedback = SentryFeedback(message: "Again really?", name: "Tim Apple", email: "tim@apple.com")
         }
     }
     
     private var fixture: Fixture!
     
+    @available(*, deprecated, message: "This is marked deprecated as a workaround (for the workaround deprecating the Fixture.init method) until we can remove SentryUserFeedback in favor of SentryFeedback. When SentryUserFeedback is removed, this deprecation annotation can be removed.")
     override func setUp() {
         super.setUp()
         fixture = Fixture()
@@ -192,6 +198,16 @@ class SentrySDKTests: XCTestCase {
         }
         XCTAssertEqual("me", SentrySDK.currentHub().scope.userObject?.userId)
         XCTAssertIdentical(scope, SentrySDK.currentHub().scope)
+    }
+    
+    func testDontStartInsideXcodePreview() {
+        startprocessInfoWrapperForPreview()
+        
+        SentrySDK.start { options in
+            options.debug = true
+        }
+
+        XCTAssertFalse(SentrySDK.isEnabled)
     }
     
     func testCrashedLastRun() {
@@ -384,6 +400,7 @@ class SentrySDKTests: XCTestCase {
         XCTAssertEqual(0, fixture.client.storedEnvelopeInvocations.count)
     }
     
+    @available(*, deprecated, message: "-[SentrySDK captureUserFeedback:] is deprecated. -[SentrySDK captureFeedback:] is the new way. This test case can be removed in favor of testCaptureFeedback when -[SentrySDK captureUserFeedback:] is removed.")
     func testCaptureUserFeedback() {
         givenSdkWithHub()
         
@@ -399,6 +416,21 @@ class SentrySDKTests: XCTestCase {
         }
     }
     
+    func testCaptureFeedback() {
+        givenSdkWithHub()
+        
+        SentrySDK.capture(feedback: fixture.feedback)
+        let client = fixture.client
+        XCTAssertEqual(1, client.captureFeedbackInvocations.count)
+        if let actual = client.captureFeedbackInvocations.first {
+            let expected = fixture.feedback
+            XCTAssertEqual(expected.eventId, actual.0.eventId)
+            XCTAssertEqual(expected.name, actual.0.name)
+            XCTAssertEqual(expected.email, actual.0.email)
+            XCTAssertEqual(expected.message, actual.0.message)
+        }
+    }
+    
     func testSetUser_SetsUserToScopeOfHub() {
         givenSdkWithHub()
         
@@ -408,6 +440,49 @@ class SentrySDKTests: XCTestCase {
         let actualScope = SentrySDK.currentHub().scope
         let event = actualScope.applyTo(event: fixture.event, maxBreadcrumbs: 10)
         XCTAssertEqual(event?.user, user)
+    }
+    
+    func testSetUserBeforeStartingSDK_LogsFatalMessage() throws {
+        // Arrange
+        let oldOutput = SentryLog.getLogOutput()
+        
+        defer {
+            SentryLog.setLogOutput(oldOutput)
+        }
+        
+        let logOutput = TestLogOutput()
+        SentryLog.setLogOutput(logOutput)
+        
+        // Act
+        SentrySDK.setUser(nil)
+    
+        // Assert
+        let actualLogMessage = try XCTUnwrap(logOutput.loggedMessages.first)
+        let expectedLogMessage = "The SDK is disabled, so setUser doesn't work. Please ensure to start the SDK before setting the user."
+        
+        XCTAssertTrue(actualLogMessage.contains(expectedLogMessage), "Expected log message to contain '\(expectedLogMessage)', but got '\(actualLogMessage)'")
+    }
+    
+    func testSetUserAFterStartingSDK_DoesNotLogFatalMessage() {
+        // Arrange
+        let oldOutput = SentryLog.getLogOutput()
+        
+        defer {
+            SentryLog.setLogOutput(oldOutput)
+        }
+        
+        let logOutput = TestLogOutput()
+        SentryLog.setLogOutput(logOutput)
+        
+        givenSdkWithHub()
+        
+        let user = TestData.user
+        
+        // Act
+        SentrySDK.setUser(user)
+        
+        //Assert
+        XCTAssertEqual(0, logOutput.loggedMessages.count, "Expected no log messages, but got \(logOutput.loggedMessages.count)")
     }
     
     func testStartTransaction() throws {
@@ -545,6 +620,13 @@ class SentrySDKTests: XCTestCase {
     }
     
     func testGlobalOptions() {
+        SentrySDK.start(options: fixture.options)
+        XCTAssertEqual(SentrySDK.options, fixture.options)
+    }
+    
+    func testGlobalOptionsForPreview() {
+        startprocessInfoWrapperForPreview()
+        
         SentrySDK.start(options: fixture.options)
         XCTAssertEqual(SentrySDK.options, fixture.options)
     }
@@ -688,8 +770,8 @@ class SentrySDKTests: XCTestCase {
 
         SentrySDK.start(options: fixture.options)
 
-        let testTTDTracker = TestTimeToDisplayTracker()
-
+        let testTTDTracker = TestTimeToDisplayTracker(waitForFullDisplay: true)
+        
         Dynamic(SentryUIViewControllerPerformanceTracker.shared).currentTTDTracker = testTTDTracker
 
         SentrySDK.reportFullyDisplayed()
@@ -961,6 +1043,12 @@ class SentrySDKTests: XCTestCase {
     private func advanceTime(bySeconds: TimeInterval) {
         fixture.currentDate.setDate(date: SentryDependencyContainer.sharedInstance().dateProvider.date().addingTimeInterval(bySeconds))
     }
+    
+    private func startprocessInfoWrapperForPreview() {
+        let testProcessInfoWrapper = TestSentryNSProcessInfoWrapper()
+        testProcessInfoWrapper.overrides.environment = ["XCODE_RUNNING_FOR_PREVIEWS": "1"]
+        SentryDependencyContainer.sharedInstance().processInfoWrapper = testProcessInfoWrapper
+    }
 }
 
 /// Tests in this class aren't part of SentrySDKTests because we need would need to undo a bunch of operations 
@@ -968,7 +1056,7 @@ class SentrySDKTests: XCTestCase {
 class SentrySDKWithSetupTests: XCTestCase {
     
     func testAccessingHubAndOptions_NoDeadlock() {
-        SentryLog.withOutLogs {
+        SentryLog.withoutLogs {
             
             let concurrentQueue = DispatchQueue(label: "concurrent", attributes: .concurrent)
             

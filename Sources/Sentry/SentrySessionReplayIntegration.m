@@ -3,6 +3,7 @@
 #if SENTRY_TARGET_REPLAY_SUPPORTED
 
 #    import "SentryClient+Private.h"
+#    import "SentryCrashWrapper.h"
 #    import "SentryDependencyContainer.h"
 #    import "SentryDispatchQueueWrapper.h"
 #    import "SentryDisplayLinkWrapper.h"
@@ -50,6 +51,7 @@ static SentryTouchTracker *_touchTracker;
     id<SentryRateLimits> _rateLimits;
     id<SentryViewScreenshotProvider> _currentScreenshotProvider;
     id<SentryReplayBreadcrumbConverter> _currentBreadcrumbConverter;
+    SentryMaskingPreviewView *_previewView;
     // We need to use this variable to identify whether rate limiting was ever activated for session
     // replay in this session, instead of always looking for the rate status in `SentryRateLimits`
     // This is the easiest way to ensure segment 0 will always reach the server, because session
@@ -85,8 +87,10 @@ static SentryTouchTracker *_touchTracker;
 - (void)setupWith:(SentryReplayOptions *)replayOptions enableTouchTracker:(BOOL)touchTracker
 {
     _replayOptions = replayOptions;
-    _viewPhotographer = [[SentryViewPhotographer alloc] initWithRedactOptions:replayOptions];
     _rateLimits = SentryDependencyContainer.sharedInstance.rateLimits;
+    id<SentryViewRenderer> viewRenderer = [[SentryDefaultViewRenderer alloc] init];
+    _viewPhotographer = [[SentryViewPhotographer alloc] initWithRenderer:viewRenderer
+                                                           redactOptions:replayOptions];
 
     if (touchTracker) {
         _touchTracker = [[SentryTouchTracker alloc]
@@ -486,6 +490,11 @@ static SentryTouchTracker *_touchTracker;
     }
 }
 
+- (void)setReplayTags:(NSDictionary<NSString *, id> *)tags
+{
+    self.sessionReplay.replayTags = [tags copy];
+}
+
 - (SentryIntegrationOption)integrationOptions
 {
     return kIntegrationOptionEnableReplay;
@@ -522,7 +531,7 @@ static SentryTouchTracker *_touchTracker;
 #    pragma clang diagnostic pop
 }
 
-#    if TEST || TESTCI
+#    if SENTRY_TEST || SENTRY_TEST_CI
 - (SentryTouchTracker *)getTouchTracker
 {
     return _touchTracker;
@@ -608,6 +617,33 @@ static SentryTouchTracker *_touchTracker;
     return SentrySDK.currentHub.scope.currentScreen
         ?: [SentryDependencyContainer.sharedInstance.application relevantViewControllersNames]
                .firstObject;
+}
+
+- (void)showMaskPreview:(CGFloat)opacity
+{
+    if ([SentryDependencyContainer.sharedInstance.crashWrapper isBeingTraced] == NO) {
+        return;
+    }
+
+    UIWindow *window = SentryDependencyContainer.sharedInstance.application.windows.firstObject;
+    if (window == nil) {
+        SENTRY_LOG_WARN(@"There is no UIWindow available to display preview");
+        return;
+    }
+
+    if (_previewView == nil) {
+        _previewView = [[SentryMaskingPreviewView alloc] initWithRedactOptions:_replayOptions];
+    }
+
+    _previewView.opacity = opacity;
+    [_previewView setFrame:window.bounds];
+    [window addSubview:_previewView];
+}
+
+- (void)hideMaskPreview
+{
+    [_previewView removeFromSuperview];
+    _previewView = nil;
 }
 
 #    pragma mark - SentryReachabilityObserver

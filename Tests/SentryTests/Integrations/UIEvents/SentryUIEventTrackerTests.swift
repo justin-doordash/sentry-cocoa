@@ -28,11 +28,11 @@ class SentryUIEventTrackerTests: XCTestCase {
     private var fixture: Fixture!
     private var sut: SentryUIEventTracker!
     
-    let operation = "ui.action"
-    let operationClick = "ui.action.click"
-    let action = "SomeAction:"
-    let expectedAction = "SomeAction"
-    let accessibilityIdentifier = "accessibilityIdentifier"
+    private let operation = "ui.action"
+    private let operationClick = "ui.action.click"
+    private let action = "SomeAction:"
+    private let expectedAction = "SomeAction"
+    private let accessibilityIdentifier = "accessibilityIdentifier"
     
     override func setUp() {
         super.setUp()
@@ -261,7 +261,7 @@ class SentryUIEventTrackerTests: XCTestCase {
         XCTAssertFalse(SentryUIEventTracker.isUIEventOperation("unknown"))
     }
         
-    func callExecuteAction(action: String, target: Any?, sender: Any?, event: UIEvent?) {
+    private func callExecuteAction(action: String, target: Any?, sender: Any?, event: UIEvent?) {
         fixture.swizzleWrapper.execute(action: action, target: target, sender: sender, event: event)
     }
     
@@ -288,7 +288,7 @@ class SentryUIEventTrackerTests: XCTestCase {
     private func assertResetsTimeout(_ firstTransaction: SentryTracer, _ secondTransaction: SentryTracer) {
         XCTAssertTrue(firstTransaction === secondTransaction)
         XCTAssertEqual(1, fixture.dispatchQueue.dispatchCancelInvocations.count)
-        XCTAssertEqual(2, fixture.dispatchQueue.dispatchAfterInvocations.count)
+        XCTAssertEqual(3, fixture.dispatchQueue.dispatchAfterInvocations.count, "Expected 3 dispatchAfter invocations. One for the initial timeout, one for the reset and one for the deadline timeout.")
     }
     
     private func assertFinishesTransaction(_ transaction: SentryTracer, _ operation: String) {

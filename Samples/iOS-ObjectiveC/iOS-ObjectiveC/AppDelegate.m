@@ -55,12 +55,11 @@
                 config.useShakeGesture = YES;
                 config.showFormForScreenshots = YES;
                 config.configureWidget = ^(SentryUserFeedbackWidgetConfiguration *_Nonnull widget) {
-                    if ([args containsObject:@"--io.sentry.feedback.auto-inject-widget"]) {
-                        widget.labelText = @"Report Jank";
-                        widget.widgetAccessibilityLabel = @"io.sentry.iOS-Swift.button.report-jank";
-                        widget.layoutUIOffset = layoutOffset;
-                    } else {
+                    if ([args containsObject:@"--io.sentry.feedback.no-auto-inject-widget"]) {
                         widget.autoInject = NO;
+                    } else {
+                        widget.labelText = @"Report Jank";
+                        widget.layoutUIOffset = layoutOffset;
                     }
 
                     if ([args containsObject:@"--io.sentry.feedback.no-widget-text"]) {
@@ -73,12 +72,16 @@
                 config.configureForm = ^(SentryUserFeedbackFormConfiguration *_Nonnull uiForm) {
                     uiForm.formTitle = @"Jank Report";
                     uiForm.submitButtonLabel = @"Report that jank";
-                    uiForm.addScreenshotButtonLabel = @"Show us the jank";
                     uiForm.messagePlaceholder
                         = @"Describe the nature of the jank. Its essence, if you will.";
+                    uiForm.useSentryUser = YES;
                 };
                 config.configureTheme = ^(SentryUserFeedbackThemeConfiguration *_Nonnull theme) {
                     theme.font = [UIFont fontWithName:@"ChalkboardSE-Regular" size:25];
+                    theme.outlineStyle =
+                        [[SentryFormElementOutlineStyle alloc] initWithColor:UIColor.purpleColor
+                                                                cornerRadius:10
+                                                                outlineWidth:4];
                 };
                 config.onSubmitSuccess = ^(NSDictionary<NSString *, id> *_Nonnull info) {
                     NSString *name = info[@"name"] ?: @"$shakespearean_insult_name";

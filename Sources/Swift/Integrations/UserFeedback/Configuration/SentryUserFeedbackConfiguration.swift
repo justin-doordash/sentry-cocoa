@@ -54,26 +54,20 @@ public class SentryUserFeedbackConfiguration: NSObject {
     public var tags: [String: Any]?
     
     /**
-     * Sets the email and name field text content to `SentryUser.email` and `SentryUser.name`.
-     * - note: Default: `false`
-     */
-    public var useSentryUser: Bool = false
-    
-    /**
-     * Called when the feedback form is opened.
+     * Called when the managed feedback form is opened.
      * - note: Default: `nil`
      */
     public var onFormOpen: (() -> Void)?
     
     /**
-     * Called when the feedback form is closed.
+     * Called when the managed feedback form is closed.
      * - note: Default: `nil`
      */
     public var onFormClose: (() -> Void)?
     
     /**
-     * Called when feedback is successfully submitted via the prepared form.
-     * The data dictionary contains the feedback details.
+     * Called when feedback is successfully submitted via the managed feedback form, indicating that the
+     * user correctly filled out the form and confirmed submission. The data dictionary contains the feedback details.
      * - note: Default: `nil`
      * - note: This is unrelated to `SentrySDK.captureUserFeedback` and is not called when using 
      * that function.
@@ -81,8 +75,8 @@ public class SentryUserFeedbackConfiguration: NSObject {
     public var onSubmitSuccess: (([String: Any]) -> Void)?
     
     /**
-     * Called when there is an error submitting feedback via the prepared form.
-     * The error object contains details of the error.
+     * Called when there is an error submitting feedback via the managed feedback form, like missing
+     * required inputs. The error object contains details of the error.
      * - note: Default: `nil`
      * - note: This is unrelated to `SentrySDK.captureUserFeedback` and is not called when using 
      * that function.

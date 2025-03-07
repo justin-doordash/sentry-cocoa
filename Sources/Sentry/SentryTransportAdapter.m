@@ -3,7 +3,6 @@
 #import "SentryEvent.h"
 #import "SentryOptions.h"
 #import "SentryUserFeedback.h"
-#import <Foundation/Foundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -92,6 +91,8 @@ NS_ASSUME_NONNULL_BEGIN
     }
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 - (void)sendUserFeedback:(SentryUserFeedback *)userFeedback
 {
     SentryEnvelopeItem *item = [[SentryEnvelopeItem alloc] initWithUserFeedback:userFeedback];
@@ -101,6 +102,7 @@ NS_ASSUME_NONNULL_BEGIN
                                                            singleItem:item];
     [self sendEnvelope:envelope];
 }
+#pragma clang diagnostic pop
 
 - (void)sendEnvelope:(SentryEnvelope *)envelope
 {

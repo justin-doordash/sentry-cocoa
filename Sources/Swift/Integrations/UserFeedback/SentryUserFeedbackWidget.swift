@@ -18,19 +18,18 @@ struct SentryUserFeedbackWidget {
             let defaultWidgetSpacing: CGFloat = 8
             
             lazy var button = SentryUserFeedbackWidgetButtonView(config: config, action: { _ in
-                self.setWidget(visible: false)
-                let form = SentryUserFeedbackForm(config: self.config, delegate: self)
-                form.presentationController?.delegate = self
-                self.present(form, animated: self.config.animations)
+                self.displayForm(screenshot: nil)
             })
             
             let config: SentryUserFeedbackConfiguration
             
             weak var delegate: (any SentryUserFeedbackWidgetDelegate)?
+            let screenshotProvider: SentryScreenshot
             
-            init(config: SentryUserFeedbackConfiguration, delegate: any SentryUserFeedbackWidgetDelegate) {
+            init(config: SentryUserFeedbackConfiguration, delegate: any SentryUserFeedbackWidgetDelegate, screenshotProvider: SentryScreenshot) {
                 self.config = config
                 self.delegate = delegate
+                self.screenshotProvider = screenshotProvider
                 super.init(nibName: nil, bundle: nil)
                 view.addSubview(button)
                 
@@ -48,13 +47,47 @@ struct SentryUserFeedbackWidget {
                     constraints.append(button.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: config.widgetConfig.layoutUIOffset.horizontal))
                 }
                 NSLayoutConstraint.activate(constraints)
+                
+                observeScreenshots()
             }
             
             required init?(coder: NSCoder) {
                 fatalError("init(coder:) has not been implemented")
             }
             
+            override func viewDidLayoutSubviews() {
+                super.viewDidLayoutSubviews()
+                button.updateAccessibilityFrame()
+            }
+            
+            // MARK: Actions
+            
+            @objc func userCapturedScreenshot() {
+                stopObservingScreenshots()
+                let image = screenshotProvider.appScreenshots().first
+                displayForm(screenshot: image)
+            }
+            
             // MARK: Helpers
+            
+            func observeScreenshots() {
+                if config.showFormForScreenshots {
+                    NotificationCenter.default.addObserver(self, selector: #selector(userCapturedScreenshot), name: UIApplication.userDidTakeScreenshotNotification, object: nil)
+                }
+            }
+            
+            func stopObservingScreenshots() {
+                NotificationCenter.default.removeObserver(self, name: UIApplication.userDidTakeScreenshotNotification, object: nil)
+            }
+            
+            func displayForm(screenshot: UIImage?) {
+                let form = SentryUserFeedbackFormController(config: self.config, delegate: self, screenshot: screenshot)
+                form.presentationController?.delegate = self
+                self.setWidget(visible: false)
+                self.present(form, animated: self.config.animations) {
+                    self.config.onFormOpen?()
+                }
+            }
             
             func setWidget(visible: Bool) {
                 if config.animations {
@@ -70,7 +103,10 @@ struct SentryUserFeedbackWidget {
             
             func closeForm() {
                 setWidget(visible: true)
-                dismiss(animated: config.animations)
+                dismiss(animated: config.animations, completion: {
+                    self.config.onFormClose?()
+                    self.observeScreenshots()
+                })
             }
             
             // MARK: SentryUserFeedbackFormDelegate
@@ -87,12 +123,13 @@ struct SentryUserFeedbackWidget {
             
             func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
                 setWidget(visible: true)
+                self.config.onFormClose?()
             }
         }
         
-        init(config: SentryUserFeedbackConfiguration, delegate: any SentryUserFeedbackWidgetDelegate) {
+        init(config: SentryUserFeedbackConfiguration, delegate: any SentryUserFeedbackWidgetDelegate, screenshotProvider: SentryScreenshot) {
             super.init(frame: UIScreen.main.bounds)
-            rootViewController = RootViewController(config: config, delegate: delegate)
+            rootViewController = RootViewController(config: config, delegate: delegate, screenshotProvider: screenshotProvider)
             windowLevel = config.widgetConfig.windowLevel
         }
         

@@ -281,7 +281,7 @@ static BOOL _framesTrackingMeasurementHybridSDKMode = NO;
 + (NSArray<NSData *> *)captureScreenshots
 {
 #if SENTRY_TARGET_REPLAY_SUPPORTED
-    return [SentryDependencyContainer.sharedInstance.screenshot appScreenshots];
+    return [SentryDependencyContainer.sharedInstance.screenshot appScreenshotsData];
 #else
     SENTRY_LOG_DEBUG(
         @"PrivateSentrySDKOnly.captureScreenshots only works with UIKit enabled. Ensure you're "
@@ -321,6 +321,12 @@ static BOOL _framesTrackingMeasurementHybridSDKMode = NO;
 }
 
 #if SENTRY_TARGET_REPLAY_SUPPORTED
+
++ (UIView *)sessionReplayMaskingOverlay:(id<SentryRedactOptions>)options
+{
+    return [[SentryMaskingPreviewView alloc] initWithRedactOptions:options];
+}
+
 + (nullable SentrySessionReplayIntegration *)getReplayIntegration
 {
 
@@ -377,6 +383,11 @@ static BOOL _framesTrackingMeasurementHybridSDKMode = NO;
 {
     [[PrivateSentrySDKOnly getReplayIntegration].viewPhotographer
         setRedactContainerClass:containerClass];
+}
+
++ (void)setReplayTags:(NSDictionary<NSString *, id> *)tags
+{
+    [[PrivateSentrySDKOnly getReplayIntegration] setReplayTags:tags];
 }
 
 #endif
