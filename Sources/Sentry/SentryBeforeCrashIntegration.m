@@ -12,9 +12,7 @@
 static void (^g_beforeCrashOptionsCallback)(NSString *) = nil;
 
 // Define a callback function
-void
-beforeCrashCallback(const char *eventID)
-{
+void beforeCrashCallback(const char *eventID) {
     if (g_beforeCrashOptionsCallback) {
         g_beforeCrashOptionsCallback([NSString stringWithUTF8String:eventID]);
     }
@@ -27,12 +25,12 @@ beforeCrashCallback(const char *eventID)
     if (![super installWithOptions:options]) {
         return NO;
     }
-
+    
     if (options.enableBeforeCrashHandler) {
         g_beforeCrashOptionsCallback = options.beforeCrash;
         sentrycrash_setBeforeCrashCallback(&beforeCrashCallback);
     }
-
+    
     return options.enableBeforeCrashHandler;
 }
 

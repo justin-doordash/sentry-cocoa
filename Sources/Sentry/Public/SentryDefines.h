@@ -124,6 +124,11 @@ typedef id<SentrySpan> _Nullable (^SentryBeforeSendSpanCallback)(id<SentrySpan> 
 typedef BOOL (^SentryBeforeCaptureScreenshotCallback)(SentryEvent *_Nonnull event);
 
 /**
+ * A callback to be notified right before the program terminated with a crash.
+ */
+typedef void (^SentryBeforeCrashCallback)(NSString *_Nonnull eventID);
+
+/**
  * Block can be used to decide if the SDK should capture a view hierarchy or not. Return @c true if
  * the SDK should capture a view hierarchy, return @c false if not. This callback doesn't work for
  * crashes.
