@@ -28,6 +28,7 @@ SENTRY_NO_INIT
 
 @property (nonatomic, readonly) NSString *basePath;
 @property (nonatomic, readonly) NSString *sentryPath;
+
 @property (nonatomic, readonly) NSString *breadcrumbsFilePathOne;
 @property (nonatomic, readonly) NSString *breadcrumbsFilePathTwo;
 @property (nonatomic, readonly) NSString *previousBreadcrumbsFilePathOne;
@@ -68,6 +69,12 @@ SENTRY_NO_INIT
  */
 - (void)deleteAllEnvelopes;
 
+#pragma mark - Convenience Accessors
+- (NSURL *)getSentryPathAsURL;
+
+#pragma mark - State
+- (void)moveState:(NSString *)stateFilePath toPreviousState:(NSString *)previousStateFilePath;
+
 #pragma mark - Session
 - (void)storeCurrentSession:(SentrySession *)session;
 - (SentrySession *_Nullable)readCurrentSession;
@@ -76,6 +83,10 @@ SENTRY_NO_INIT
 - (void)storeCrashedSession:(SentrySession *)session;
 - (SentrySession *_Nullable)readCrashedSession;
 - (void)deleteCrashedSession;
+
+- (void)storeAbnormalSession:(SentrySession *)session;
+- (SentrySession *_Nullable)readAbnormalSession;
+- (void)deleteAbnormalSession;
 
 #pragma mark - LastInForeground
 - (void)storeTimestampLastInForeground:(NSDate *)timestamp;
@@ -101,6 +112,7 @@ SENTRY_NO_INIT
 #pragma mark - AppHangs
 - (void)storeAppHangEvent:(SentryEvent *)appHangEvent;
 - (nullable SentryEvent *)readAppHangEvent;
+- (BOOL)appHangEventExists;
 - (void)deleteAppHangEvent;
 
 #pragma mark - File Operations
@@ -109,13 +121,17 @@ SENTRY_NO_INIT
 - (void)removeFileAtPath:(NSString *)path;
 - (NSArray<NSString *> *)allFilesInFolder:(NSString *)path;
 - (BOOL)isDirectory:(NSString *)path;
+- (nullable NSData *)readDataFromPath:(NSString *)path
+                                error:(NSError *__autoreleasing _Nullable *)error;
+- (BOOL)writeData:(NSData *)data toPath:(NSString *)path;
 
 BOOL createDirectoryIfNotExists(NSString *path, NSError **error);
 
 /**
  * Path for a default directory Sentry can use in the app sandbox' caches directory.
  * @note This method must be statically accessible because it will be called during app launch,
- * before any instance of @c SentryFileManager exists, and so wouldn't be able to access this path
+ * before any instance of @c SentryFileManager exists, and so wouldn't be able to access this path.
+ * @note For unsandboxed macOS apps, the path has the form @c ~/Library/Caches/<app-bundle-id> .
  * from an objc property on it like the other paths. It also cannot use
  * @c SentryOptions.cacheDirectoryPath since this can be called before
  * @c SentrySDK.startWithOptions .
@@ -138,7 +154,8 @@ SENTRY_EXTERN BOOL appLaunchProfileConfigFileExists(void);
  * Retrieve the contents of the launch profile config file, which stores the sample rates used to
  * decide whether or not to profile this launch.
  */
-SENTRY_EXTERN NSDictionary<NSString *, NSNumber *> *_Nullable appLaunchProfileConfiguration(void);
+SENTRY_EXTERN NSDictionary<NSString *, NSNumber *>
+    *_Nullable sentry_persistedLaunchProfileConfigurationOptions(void);
 
 /**
  * Write a config file that stores the sample rates used to determine whether this launch should
@@ -154,6 +171,12 @@ SENTRY_EXTERN void writeAppLaunchProfilingConfigFile(
  * start the profiler.
  */
 SENTRY_EXTERN void removeAppLaunchProfilingConfigFile(void);
+
+SENTRY_EXTERN NSString *_Nullable sentryStaticBasePath(void);
+
+#    if defined(SENTRY_TEST) || defined(SENTRY_TEST_CI) || defined(DEBUG)
+SENTRY_EXTERN void removeSentryStaticBasePath(void);
+#    endif // defined(SENTRY_TEST) || defined(SENTRY_TEST_CI) || defined(DEBUG)
 
 #endif // SENTRY_TARGET_PROFILING_SUPPORTED
 

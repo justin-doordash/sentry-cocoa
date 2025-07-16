@@ -5,7 +5,6 @@
 #import "SentryDependencyContainer.h"
 #import "SentryDiscardReasonMapper.h"
 #import "SentryDiscardedEvent.h"
-#import "SentryDispatchQueueWrapper.h"
 #import "SentryDsn.h"
 #import "SentryEnvelope+Private.h"
 #import "SentryEnvelope.h"
@@ -14,8 +13,7 @@
 #import "SentryEnvelopeRateLimit.h"
 #import "SentryEvent.h"
 #import "SentryFileManager.h"
-#import "SentryLog.h"
-#import "SentryNSURLRequest.h"
+#import "SentryLogC.h"
 #import "SentryNSURLRequestBuilder.h"
 #import "SentryOptions.h"
 #import "SentrySerialization.h"
@@ -39,6 +37,7 @@
 @property (nonatomic, strong) SentryEnvelopeRateLimit *envelopeRateLimit;
 @property (nonatomic, strong) SentryDispatchQueueWrapper *dispatchQueue;
 @property (nonatomic, strong) dispatch_group_t dispatchGroup;
+@property (nonatomic, strong) id<SentryCurrentDateProvider> dateProvider;
 
 #if defined(SENTRY_TEST) || defined(SENTRY_TEST_CI) || defined(DEBUG)
 @property (nullable, nonatomic, strong) void (^startFlushCallback)(void);
@@ -69,6 +68,7 @@
 
 - (id)initWithOptions:(SentryOptions *)options
     cachedEnvelopeSendDelay:(NSTimeInterval)cachedEnvelopeSendDelay
+               dateProvider:(id<SentryCurrentDateProvider>)dateProvider
                 fileManager:(SentryFileManager *)fileManager
              requestManager:(id<SentryRequestManager>)requestManager
              requestBuilder:(SentryNSURLRequestBuilder *)requestBuilder
@@ -85,6 +85,7 @@
         self.rateLimits = rateLimits;
         self.envelopeRateLimit = envelopeRateLimit;
         self.dispatchQueue = dispatchQueueWrapper;
+        self.dateProvider = dateProvider;
         self.dispatchGroup = dispatch_group_create();
         _isSending = NO;
         _isFlushing = NO;
@@ -226,7 +227,7 @@
         SENTRY_LOG_DEBUG(@"Finished flushing.");
         return kSentryFlushResultSuccess;
     } else {
-        SENTRY_LOG_DEBUG(@"Flushing timed out.");
+        SENTRY_LOG_WARN(@"Flushing timed out.");
         return kSentryFlushResultTimedOut;
     }
 }
@@ -336,7 +337,7 @@
     }
 
     // We must set sentAt as close as possible to the transmission of the envelope to Sentry.
-    rateLimitedEnvelope.header.sentAt = SentryDependencyContainer.sharedInstance.dateProvider.date;
+    rateLimitedEnvelope.header.sentAt = [self.dateProvider date];
 
     NSError *requestError = nil;
     NSURLRequest *request = [self.requestBuilder createEnvelopeRequest:rateLimitedEnvelope
@@ -366,13 +367,13 @@
     }
 
     __weak SentryHttpTransport *weakSelf = self;
-    [self.dispatchQueue dispatchAfter:self.cachedEnvelopeSendDelay
-                                block:^{
-                                    if (weakSelf == nil) {
-                                        return;
-                                    }
-                                    [weakSelf sendAllCachedEnvelopes];
-                                }];
+    dispatch_block_t block = ^{
+        if (weakSelf == nil) {
+            return;
+        }
+        [weakSelf sendAllCachedEnvelopes];
+    };
+    [self.dispatchQueue dispatchAfter:self.cachedEnvelopeSendDelay block:block];
 }
 
 - (void)sendEnvelope:(SentryEnvelope *)envelope
@@ -393,14 +394,22 @@
                 [weakSelf recordLostEventFor:envelope.items];
             }
 
-            if (nil != response) {
-                SENTRY_LOG_DEBUG(@"Envelope sent successfully!");
-                [weakSelf.rateLimits update:response];
-                [weakSelf deleteEnvelopeAndSendNext:envelopePath];
-            } else {
+            if (response == nil) {
                 SENTRY_LOG_DEBUG(@"No internet connection.");
                 [weakSelf finishedSending];
+                return;
             }
+
+            [weakSelf.rateLimits update:response];
+
+            if (response.statusCode == 200) {
+                SENTRY_LOG_DEBUG(@"Envelope sent successfully!");
+                [weakSelf deleteEnvelopeAndSendNext:envelopePath];
+                return;
+            }
+
+            SENTRY_LOG_DEBUG(@"Received non-200 response code: %li", (long)response.statusCode);
+            [weakSelf finishedSending];
         }];
 }
 
@@ -434,7 +443,7 @@
 - (void)recordLostSpans:(SentryEnvelopeItem *)envelopeItem reason:(SentryDiscardReason)reason
 {
     if ([SentryEnvelopeItemTypeTransaction isEqualToString:envelopeItem.header.type]) {
-        NSDictionary *transactionJson =
+        NSDictionary *_Nullable transactionJson =
             [SentrySerialization deserializeDictionaryFromJsonData:envelopeItem.data];
         if (transactionJson == nil) {
             return;

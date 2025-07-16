@@ -1,6 +1,6 @@
 @testable import _SentryPrivate
-@testable import Sentry
-import SentryTestUtils
+@_spi(Private) @testable import Sentry
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
@@ -62,7 +62,7 @@ class SentryFramesTrackerTests: XCTestCase {
         sut.start()
         sut.start()
         
-        XCTAssertEqual(self.fixture.notificationCenter.addObserverInvocationsCount, 2)
+        XCTAssertEqual(self.fixture.notificationCenter.addObserverWithObjectInvocations.invocations.count, 2)
     }
     
     func testIsNotRunning_WhenStopped() {
@@ -79,7 +79,7 @@ class SentryFramesTrackerTests: XCTestCase {
         sut.stop()
         sut.stop()
         
-        XCTAssertEqual(self.fixture.notificationCenter.removeObserverWithNameInvocationsCount, 2)
+        XCTAssertEqual(self.fixture.notificationCenter.removeObserverWithNameAndObjectInvocations.invocations.count, 2)
     }
     
     func testKeepFrames_WhenStopped() throws {
@@ -683,7 +683,7 @@ class SentryFramesTrackerTests: XCTestCase {
         let sut = fixture.sut
         sut.start()
         
-        fixture.notificationCenter.post(Notification(name: SentryNSNotificationCenterWrapper.willResignActiveNotificationName))
+        fixture.notificationCenter.post(Notification(name: CrossPlatformApplication.willResignActiveNotification))
         
         XCTAssertFalse(sut.isRunning)
     }
@@ -699,9 +699,9 @@ class SentryFramesTrackerTests: XCTestCase {
         }
         sut.add(listener)
         
-        fixture.notificationCenter.post(Notification(name: SentryNSNotificationCenterWrapper.willResignActiveNotificationName))
+        fixture.notificationCenter.post(Notification(name: CrossPlatformApplication.willResignActiveNotification))
         
-        fixture.notificationCenter.post(Notification(name: SentryNSNotificationCenterWrapper.didBecomeActiveNotificationName))
+        fixture.notificationCenter.post(Notification(name: CrossPlatformApplication.didBecomeActiveNotification))
         
         // Ensure to keep listeners when moving to background
         fixture.displayLinkWrapper.normalFrame()

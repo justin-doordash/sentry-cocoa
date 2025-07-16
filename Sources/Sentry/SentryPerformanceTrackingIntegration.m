@@ -4,11 +4,11 @@
 
 #    import "SentryDefaultObjCRuntimeWrapper.h"
 #    import "SentryDependencyContainer.h"
-#    import "SentryDispatchQueueWrapper.h"
-#    import "SentryLog.h"
+#    import "SentryLogC.h"
 #    import "SentryNSProcessInfoWrapper.h"
 #    import "SentryOptions.h"
 #    import "SentrySubClassFinder.h"
+#    import "SentrySwift.h"
 #    import "SentryUIViewControllerPerformanceTracker.h"
 #    import "SentryUIViewControllerSwizzling.h"
 
@@ -46,8 +46,9 @@
           binaryImageCache:[SentryDependencyContainer.sharedInstance binaryImageCache]];
 
     [self.swizzling start];
-    SentryUIViewControllerPerformanceTracker.shared.alwaysWaitForFullDisplay
-        = options.enableTimeToFullDisplayTracing;
+    SentryUIViewControllerPerformanceTracker *performanceTracker =
+        [SentryDependencyContainer.sharedInstance uiViewControllerPerformanceTracker];
+    performanceTracker.alwaysWaitForFullDisplay = options.enableTimeToFullDisplayTracing;
 
     return YES;
 }

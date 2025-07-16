@@ -10,6 +10,7 @@
 #    import "SentryHub+Private.h"
 #    import "SentryOptions.h"
 #    import "SentrySDK+Private.h"
+#    import "SentrySwift.h"
 
 #    if SENTRY_HAS_METRIC_KIT
 #        import "SentryMetricKitIntegration.h"
@@ -59,15 +60,16 @@ saveScreenShot(const char *path)
     [client removeAttachmentProcessor:self];
 }
 
-- (NSArray<SentryAttachment *> *)processAttachments:(NSArray<SentryAttachment *> *)attachments
-                                           forEvent:(nonnull SentryEvent *)event
+- (nonnull NSArray<SentryAttachment *> *)processAttachments:
+                                             (nonnull NSArray<SentryAttachment *> *)attachments
+                                                   forEvent:(nonnull SentryEvent *)event
 {
 
     // We don't take screenshots if there is no exception/error.
     // We don't take screenshots if the event is a metric kit event.
     // Screenshots are added via an alternate codepath for crashes, see
     // sentrycrash_setSaveScreenshots in SentryCrashC.c
-    if ((event.exceptions == nil && event.error == nil) || event.isCrashEvent
+    if ((event.exceptions == nil && event.error == nil) || event.isFatalEvent
 #    if SENTRY_HAS_METRIC_KIT
         || [event isMetricKitEvent]
 #    endif // SENTRY_HAS_METRIC_KIT

@@ -1,20 +1,22 @@
 #if __has_include(<Sentry/Sentry.h>)
 #    import <Sentry/SentryDefines.h>
-#    import <Sentry/SentryProfilingConditionals.h>
-#else
+#elif __has_include(<SentryWithoutUIKit/Sentry.h>)
 #    import <SentryWithoutUIKit/SentryDefines.h>
-#    import <SentryWithoutUIKit/SentryProfilingConditionals.h>
+#else
+#    import <SentryDefines.h>
 #endif
+#import SENTRY_HEADER(SentryProfilingConditionals)
 
 NS_ASSUME_NONNULL_BEGIN
 
 @class SentryDsn;
-@class SentryExperimentalOptions;
 @class SentryHttpStatusCodeRange;
 @class SentryMeasurementValue;
 @class SentryReplayOptions;
+#if SENTRY_TARGET_PROFILING_SUPPORTED
+@class SentryProfileOptions;
+#endif // SENTRY_TARGET_PROFILING_SUPPORTED
 @class SentryScope;
-@class SentryReplayOptions;
 
 NS_SWIFT_NAME(Options)
 @interface SentryOptions : NSObject
@@ -532,6 +534,20 @@ NS_SWIFT_NAME(Options)
 
 #if SENTRY_TARGET_PROFILING_SUPPORTED
 /**
+ * Block used to configure the continuous profiling options.
+ * @warning Continuous profiling is an experimental feature and may contain bugs.
+ * @seealso @c SentryProfileOptions, @c SentrySDK.startProfiler and @c SentrySDK.stopProfiler .
+ */
+typedef void (^SentryProfilingConfigurationBlock)(SentryProfileOptions *_Nonnull profiling);
+
+/**
+ * Configuration for the Sentry profiler.
+ * @warning: Continuous profiling is an experimental feature and may still contain bugs.
+ * @warning: Profiling is automatically disabled if a thread sanitizer is attached.
+ */
+@property (nullable, nonatomic, copy) SentryProfilingConfigurationBlock configureProfiling;
+
+/**
  * @warning This is an experimental feature and may still have bugs.
  * Set to @c YES to run the profiler as early as possible in an app launch, before you would
  * normally have the opportunity to call @c SentrySDK.start . If @c profilesSampleRate is nonnull,
@@ -540,9 +556,13 @@ NS_SWIFT_NAME(Options)
  * @warning If @c profilesSampleRate is @c nil then a continuous profile will be started on every
  * launch; if you desire sampling profiled launches, you must compute your own sample rate to decide
  * whether to set this property to @c YES or @c NO .
+ * @warning This property is deprecated and will be removed in a future version of the SDK. See
+ * @c SentryProfileOptions.startOnAppStart and @c SentryProfileOptions.lifecycle .
  * @note Profiling is automatically disabled if a thread sanitizer is attached.
  */
-@property (nonatomic, assign) BOOL enableAppLaunchProfiling;
+@property (nonatomic, assign) BOOL enableAppLaunchProfiling DEPRECATED_MSG_ATTRIBUTE(
+    "This property is deprecated and will be removed in a future version of the SDK. See "
+    "SentryProfileOptions.startOnAppStart and SentryProfileOptions.lifecycle");
 
 /**
  * @note Profiling is not supported on watchOS or tvOS.
@@ -566,8 +586,12 @@ NS_SWIFT_NAME(Options)
  * @note The default is @c nil (which implies continuous profiling mode).
  * @warning The new continuous profiling mode is experimental and may still contain bugs.
  * @note Profiling is automatically disabled if a thread sanitizer is attached.
+ * @warning This property is deprecated and will be removed in a future version of the SDK. See
+ * @c  SentryProfileOptions.sessionSampleRate.
  */
-@property (nullable, nonatomic, strong) NSNumber *profilesSampleRate;
+@property (nullable, nonatomic, strong) NSNumber *profilesSampleRate DEPRECATED_MSG_ATTRIBUTE(
+    "This property is deprecated and will be removed in a future version of the SDK. See "
+    "SentryProfileOptions.sessionSampleRate");
 
 /**
  * @note Profiling is not supported on watchOS or tvOS.
@@ -578,8 +602,14 @@ NS_SWIFT_NAME(Options)
  * with @c SentrySamplingContext.forNextAppLaunch set to @c YES, and the result will be persisted to
  * disk for use on the next app launch.
  * @note Profiling is automatically disabled if a thread sanitizer is attached.
+ * @warning This property is deprecated and will be removed in a future version of the SDK. See
+ * @c SentryProfileOptions.sessionSampleRate .
  */
-@property (nullable, nonatomic) SentryTracesSamplerCallback profilesSampler NS_SWIFT_SENDABLE;
+@property (nullable, nonatomic)
+    SentryTracesSamplerCallback profilesSampler NS_SWIFT_SENDABLE DEPRECATED_MSG_ATTRIBUTE(
+        "This property is deprecated and will be removed in a future version of the SDK. See "
+        "SentryProfileOptions.sessionSampleRate");
+;
 
 /**
  * If profiling should be enabled or not.
@@ -590,8 +620,10 @@ NS_SWIFT_NAME(Options)
  * @returns @c YES if either @c profilesSampleRate > @c 0 and \<= @c 1 , or @c profilesSampler is
  * set, otherwise @c NO.
  * @note Profiling is automatically disabled if a thread sanitizer is attached.
+ * @warning This property is deprecated and will be removed in a future version of the SDK.
  */
-@property (nonatomic, assign, readonly) BOOL isProfilingEnabled;
+@property (nonatomic, assign, readonly) BOOL isProfilingEnabled DEPRECATED_MSG_ATTRIBUTE(
+    "This property is deprecated and will be removed in a future version of the SDK");
 
 /**
  * @brief Whether to enable the sampling profiler.
@@ -624,6 +656,7 @@ NS_SWIFT_NAME(Options)
 
 #if SENTRY_UIKIT_AVAILABLE
 
+#    if !SDK_V9
 /**
  * AppHangTrackingV2 can differentiate between fully-blocking and non-fully blocking app hangs.
  * fully-blocking app hang is when the main thread is stuck completely, and the app can't render a
@@ -640,10 +673,10 @@ NS_SWIFT_NAME(Options)
  * @note This flag wins over enableAppHangTracking. When enabling both enableAppHangTracking and
  enableAppHangTrackingV2, the SDK only enables enableAppHangTrackingV2 and disables
  enableAppHangTracking.
- *
- * @warning This is an experimental feature and may still have bugs.
  */
 @property (nonatomic, assign) BOOL enableAppHangTrackingV2;
+
+#    endif // !SDK_V9
 
 /**
  * When enabled the SDK reports non-fully-blocking app hangs. A non-fully-blocking app hang is when
@@ -777,11 +810,9 @@ NS_SWIFT_NAME(Options)
  */
 @property (nonatomic, copy) NSString *spotlightUrl;
 
-/**
- * This aggregates options for experimental features.
- * Be aware that the options available for experimental can change at any time.
- */
-@property (nonatomic, readonly) SentryExperimentalOptions *experimental;
+// Do not use this directly, instead use the non-underscored `experimental` property that is
+// defined through a Swift extension.
+@property (nonatomic, readonly) NSObject *_swiftExperimentalOptions;
 
 #if TARGET_OS_IOS && SENTRY_HAS_UIKIT
 
@@ -794,6 +825,7 @@ NS_SWIFT_NAME(Options)
  * either this block to configure a widget and UI form to gather feedback, or directly submits
  * feedback you've gathered using your own UI by calling the method @c SentrySDK.captureFeedback
  * (se https://docs.sentry.io/platforms/apple/user-feedback/configuration/).
+ * @note User feedback widget is only available for iOS 13 or later.
  */
 @property (nonatomic, copy, nullable)
     SentryUserFeedbackConfigurationBlock configureUserFeedback API_AVAILABLE(ios(13.0));
