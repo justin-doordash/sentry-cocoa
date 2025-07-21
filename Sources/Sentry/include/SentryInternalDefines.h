@@ -1,4 +1,4 @@
-#import "SentryLog.h"
+#import "SentryLogC.h"
 #import <Foundation/Foundation.h>
 
 static NSString *const SentryDebugImageType = @"macho";
@@ -20,7 +20,8 @@ static NSString *const SentryPlatformName = @"cocoa";
 #define SENTRY_DEFAULT_PROFILES_SAMPLE_RATE @0
 
 /**
- * Abort in debug, and log a warning in production.
+ * Abort in debug, and log a warning in production. Meant to help customers while they work locally,
+ * but not crash their app in production if a condition inadvertently becomes true.
  */
 #define SENTRY_GRACEFUL_FATAL(...)                                                                 \
     SENTRY_LOG_WARN(__VA_ARGS__);                                                                  \

@@ -1,5 +1,6 @@
 import _SentryPrivate
-import SentryTestUtils
+@_spi(Private) @testable import Sentry
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
@@ -23,7 +24,7 @@ class SentryAppStartTrackingIntegrationTests: NotificationCenterTestCase {
 
     override class func setUp() {
         super.setUp()
-        SentryLog.configureLog(true, diagnosticLevel: .debug)
+        SentrySDKLog.configureLog(true, diagnosticLevel: .debug)
         clearTestState()
     }
     

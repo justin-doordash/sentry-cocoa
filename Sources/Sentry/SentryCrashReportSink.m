@@ -6,14 +6,14 @@
 #import "SentryCrashReportConverter.h"
 #import "SentryCrashWrapper.h"
 #import "SentryDefines.h"
-#import "SentryDispatchQueueWrapper.h"
 #import "SentryEvent.h"
 #import "SentryException.h"
 #import "SentryHub.h"
-#import "SentryLog.h"
+#import "SentryLogC.h"
 #import "SentrySDK+Private.h"
 #import "SentrySDK.h"
 #import "SentryScope+Private.h"
+#import "SentrySwift.h"
 #import "SentryThread.h"
 
 static const NSTimeInterval SENTRY_APP_START_CRASH_DURATION_THRESHOLD = 2.0;
@@ -100,7 +100,7 @@ static const NSTimeInterval SENTRY_APP_START_CRASH_FLUSH_DURATION = 5.0;
         }
     }
 
-    [SentrySDK captureCrashEvent:event withScope:scope];
+    [SentrySDK captureFatalEvent:event withScope:scope];
 }
 
 @end

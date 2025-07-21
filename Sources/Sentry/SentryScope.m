@@ -3,46 +3,24 @@
 #import "SentryBreadcrumb.h"
 #import "SentryEnvelopeItemType.h"
 #import "SentryEvent+Private.h"
-#import "SentryGlobalEventProcessor.h"
 #import "SentryLevelMapper.h"
-#import "SentryLog.h"
+#import "SentryLogC.h"
+#import "SentryModels+Serializable.h"
 #import "SentryPropagationContext.h"
 #import "SentryScope+Private.h"
+#import "SentryScope+PrivateSwift.h"
 #import "SentryScopeObserver.h"
 #import "SentrySession.h"
 #import "SentrySpan.h"
+#import "SentrySwift.h"
 #import "SentryTracer.h"
 #import "SentryTransactionContext.h"
+#import "SentryUser+Serialize.h"
 #import "SentryUser.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
 @interface SentryScope ()
-
-/**
- * Set global tags -> these will be sent with every event
- */
-@property (atomic, strong) NSMutableDictionary<NSString *, NSString *> *tagDictionary;
-
-/**
- * Set global extra -> these will be sent with every event
- */
-@property (atomic, strong) NSMutableDictionary<NSString *, id> *extraDictionary;
-
-/**
- * This distribution of the application.
- */
-@property (atomic, copy) NSString *_Nullable distString;
-
-/**
- * Set the fingerprint of an event to determine the grouping
- */
-@property (atomic, strong) NSMutableArray<NSString *> *fingerprintArray;
-
-/**
- * SentryLevel of the event
- */
-@property (atomic) enum SentryLevel levelEnum;
 
 @property (atomic) NSUInteger maxBreadcrumbs;
 @property (atomic) NSUInteger currentBreadcrumbIndex;
@@ -135,8 +113,10 @@ NS_ASSUME_NONNULL_BEGIN
 
         _currentBreadcrumbIndex = (_currentBreadcrumbIndex + 1) % _maxBreadcrumbs;
 
+        // Serializing is expensive. Only do it once.
+        NSDictionary<NSString *, id> *serializedBreadcrumb = [crumb serialize];
         for (id<SentryScopeObserver> observer in self.observers) {
-            [observer addSerializedBreadcrumb:[crumb serialize]];
+            [observer addSerializedBreadcrumb:serializedBreadcrumb];
         }
     }
 }
@@ -148,6 +128,20 @@ NS_ASSUME_NONNULL_BEGIN
 
         for (id<SentryScopeObserver> observer in self.observers) {
             [observer setTraceContext:[self buildTraceContext:span]];
+        }
+    }
+}
+
+- (void)setPropagationContext:(SentryPropagationContext *)propagationContext
+{
+    @synchronized(_propagationContext) {
+        _propagationContext = propagationContext;
+
+        if (self.observers.count > 0) {
+            NSDictionary *traceContext = [self.propagationContext traceContextForEvent];
+            for (id<SentryScopeObserver> observer in self.observers) {
+                [observer setTraceContext:traceContext];
+            }
         }
     }
 }
@@ -240,13 +234,20 @@ NS_ASSUME_NONNULL_BEGIN
     }
 }
 
+- (nullable NSDictionary<NSString *, id> *)getContextForKey:(NSString *)key
+{
+    @synchronized(_contextDictionary) {
+        return [_contextDictionary objectForKey:key];
+    }
+}
+
 - (void)removeContextForKey:(NSString *)key
 {
     @synchronized(_contextDictionary) {
         [_contextDictionary removeObjectForKey:key];
 
         for (id<SentryScopeObserver> observer in self.observers) {
-            [observer setExtras:_contextDictionary];
+            [observer setContext:_contextDictionary];
         }
     }
 }
@@ -529,6 +530,13 @@ NS_ASSUME_NONNULL_BEGIN
 - (SentryEvent *__nullable)applyToEvent:(SentryEvent *)event
                           maxBreadcrumb:(NSUInteger)maxBreadcrumbs
 {
+    if (event.isFatalEvent) {
+        SENTRY_LOG_WARN(@"Won't apply scope to a crash event. This is not allowed as crash "
+                        @"events are from a previous run of the app and the current scope might "
+                        @"have different data than the scope that was active during the crash.");
+        return event;
+    }
+
     if (event.tags == nil) {
         event.tags = [self tags];
     } else {
@@ -583,18 +591,6 @@ NS_ASSUME_NONNULL_BEGIN
         event.level = level;
     }
 
-    NSMutableDictionary *newContext = [self context].mutableCopy;
-    if (event.context != nil) {
-        [SentryDictionary mergeEntriesFromDictionary:event.context intoDictionary:newContext];
-    }
-
-    // Don't add the trace context of a current trace to a crash event because crash events are from
-    // a previous run.
-    if (event.isCrashEvent) {
-        event.context = newContext;
-        return event;
-    }
-
     id<SentrySpan> span;
 
     if (self.span != nil) {
@@ -609,6 +605,11 @@ NS_ASSUME_NONNULL_BEGIN
                 event.transaction = [[(SentryTracer *)span transactionContext] name];
             }
         }
+    }
+
+    NSMutableDictionary *newContext = [self context].mutableCopy;
+    if (event.context != nil) {
+        [SentryDictionary mergeEntriesFromDictionary:event.context intoDictionary:newContext];
     }
 
     newContext[@"trace"] = [self buildTraceContext:span];
@@ -629,6 +630,11 @@ NS_ASSUME_NONNULL_BEGIN
     } else {
         return [self.propagationContext traceContextForEvent];
     }
+}
+
+- (NSString *)propagationContextTraceIdString
+{
+    return [self.propagationContext.traceId sentryIdString];
 }
 
 @end

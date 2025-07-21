@@ -1,6 +1,6 @@
 import _SentryPrivate
-@testable import Sentry
-import SentryTestUtils
+@_spi(Private) @testable import Sentry
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 #if os(iOS) || os(macOS) || targetEnvironment(macCatalyst)
@@ -39,6 +39,7 @@ class SentryProfileTestFixture {
     lazy var framesTracker = TestFramesTracker(displayLinkWrapper: displayLinkWrapper, dateProvider: currentDateProvider, dispatchQueueWrapper: dispatchQueueWrapper, notificationCenter: notificationCenter, keepDelayedFramesDuration: 0)
 #endif // !os(macOS)
     
+    @available(*, deprecated, message: "This is only marked as deprecated because profilesSampleRate is marked as deprecated. Once that is removed this can be removed.")
     init() {
         SentryDependencyContainer.sharedInstance().dispatchQueueWrapper = dispatchQueueWrapper
         SentryDependencyContainer.sharedInstance().dateProvider = currentDateProvider

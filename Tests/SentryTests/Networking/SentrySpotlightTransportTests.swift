@@ -1,5 +1,5 @@
-@testable import Sentry
-import SentryTestUtils
+@_spi(Private) @testable import Sentry
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 final class SentrySpotlightTransportTests: XCTestCase {
@@ -134,8 +134,8 @@ final class SentrySpotlightTransportTests: XCTestCase {
     
     func testShouldLogError_WhenRequestManagerCompletesWithError() throws {
         let logOutput = TestLogOutput()
-        SentryLog.setLogOutput(logOutput)
-        SentryLog.configureLog(true, diagnosticLevel: .debug)
+        SentrySDKLog.setLogOutput(logOutput)
+        SentrySDKLog.configureLog(true, diagnosticLevel: .debug)
         
         let eventEnvelope = try givenEventEnvelope()
         requestManager.nextError = NSError(domain: "error", code: 47)
@@ -143,7 +143,7 @@ final class SentrySpotlightTransportTests: XCTestCase {
         
         sut.send(envelope: eventEnvelope)
         
-        requestManager.waitForAllRequests()
+        requestManager.waitForAllRequests(timeout: 1_000)
         
         let logMessages = logOutput.loggedMessages.filter {
             $0.contains("[Sentry] [error]") &&
@@ -155,7 +155,7 @@ final class SentrySpotlightTransportTests: XCTestCase {
     
     private func getSerializedGzippedData(envelope: SentryEnvelope) throws -> Data {
         let expectedData = try XCTUnwrap(SentrySerialization.data(with: envelope)) as NSData
-        return sentry_gzippedWithCompressionLevel(expectedData as Data, -1, nil) ?? Data()
+        return try SentryNSDataUtils.sentry_gzipped(with: expectedData as Data, compressionLevel: -1)
     }
 
 }

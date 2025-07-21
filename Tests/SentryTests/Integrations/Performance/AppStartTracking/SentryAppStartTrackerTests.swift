@@ -1,5 +1,5 @@
-@testable import Sentry
-import SentryTestUtils
+@_spi(Private) @testable import Sentry
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
@@ -43,7 +43,7 @@ class SentryAppStartTrackerTests: NotificationCenterTestCase {
                 crashWrapper: crashWrapper,
                 fileManager: fileManager,
                 dispatchQueueWrapper: dispatchQueue,
-                notificationCenterWrapper: SentryNSNotificationCenterWrapper()
+                notificationCenterWrapper: NotificationCenter.default
             )
             
             framesTracker = SentryFramesTracker(displayLinkWrapper: displayLinkWrapper, dateProvider: currentDate, dispatchQueueWrapper: TestSentryDispatchQueueWrapper(),
