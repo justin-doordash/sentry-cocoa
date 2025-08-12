@@ -86,7 +86,7 @@ jobs:
       suffix: ${{matrix.variant.suffix}}
       configuration-suffix: ${{matrix.variant.configuration-suffix}}
       variant-id: ${{matrix.variant.id}}
-      signed: true
+      # signed: true
       release-version: ${{ github.event.inputs.version }}
       excluded-archs: ${{matrix.variant.excluded-archs}}
       override-name: ${{matrix.variant.override-name}}
