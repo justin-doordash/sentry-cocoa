@@ -14,6 +14,7 @@
 #import "SentrySessionReplayIntegration.h"
 #import "SentrySwift.h"
 #import "SentrySwiftAsyncIntegration.h"
+#import "SentryBeforeCrashIntegration.h"
 
 #if SENTRY_HAS_UIKIT
 #    import "SentryAppStartTrackingIntegration.h"
@@ -54,7 +55,7 @@
         [SentryANRTrackingIntegration class], [SentryAutoBreadcrumbTrackingIntegration class],
         [SentryAutoSessionTrackingIntegration class], [SentryCoreDataTrackingIntegration class],
         [SentryFileIOTrackingIntegration class], [SentryNetworkTrackingIntegration class],
-        [SentrySwiftAsyncIntegration class], nil];
+        [SentrySwiftAsyncIntegration class], [SentryBeforeCrashIntegration class], nil];
 
 #if TARGET_OS_IOS && SENTRY_HAS_UIKIT
     if (@available(iOS 13.0, iOSApplicationExtension 13.0, *)) {
@@ -316,6 +317,14 @@
     if ([self isBlock:options[@"tracesSampler"]]) {
         sentryOptions.tracesSampler = options[@"tracesSampler"];
     }
+
+    [self setBool:options[@"enableBeforeCrashHandler"]
+            block:^(BOOL value) { self->_enableBeforeCrashHandler = value; }];
+
+    if ([self isBlock:options[@"beforeCrash"]]) {
+        self.beforeCrash = options[@"beforeCrash"];
+    }
+
 #if !SDK_V9
 #    pragma clang diagnostic push
 #    pragma clang diagnostic ignored "-Wdeprecated-declarations"

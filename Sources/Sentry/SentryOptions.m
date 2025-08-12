@@ -1,7 +1,6 @@
 #import "SentryANRTrackingIntegration.h"
 #import "SentryAutoBreadcrumbTrackingIntegration.h"
 #import "SentryAutoSessionTrackingIntegration.h"
-#import "SentryBeforeCrashIntegration.h"
 #import "SentryCoreDataTrackingIntegration.h"
 #import "SentryCrashIntegration.h"
 #import "SentryDsn.h"
@@ -20,7 +19,6 @@
 #import "SentrySwift.h"
 #import "SentrySwiftAsyncIntegration.h"
 #import "SentryTracer.h"
-#import "SentryBeforeCrashIntegration.h"
 #import <objc/runtime.h>
 
 NSString *const kSentryDefaultEnvironment = @"production";
