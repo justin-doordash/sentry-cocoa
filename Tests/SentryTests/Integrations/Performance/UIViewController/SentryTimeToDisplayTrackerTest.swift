@@ -1,6 +1,6 @@
 import Foundation
 @testable import Sentry
-import SentryTestUtils
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
@@ -345,7 +345,7 @@ class SentryTimeToDisplayTrackerTest: XCTestCase {
     
     func testTracerWithAppStartData_notWaitingForFullDisplay() throws {
         let appStartMeasurement = TestData.getAppStartMeasurement(type: .cold, appStartTimestamp: Date(timeIntervalSince1970: 6), runtimeInitSystemTimestamp: 6_000_000_000)
-        SentrySDK.setAppStartMeasurement(appStartMeasurement)
+        SentrySDKInternal.setAppStartMeasurement(appStartMeasurement)
         
         fixture.dateProvider.setDate(date: Date(timeIntervalSince1970: 7))
 
@@ -378,7 +378,7 @@ class SentryTimeToDisplayTrackerTest: XCTestCase {
     
     func testTracerWithAppStartData_waitingForFullDisplay() throws {
         let appStartMeasurement = TestData.getAppStartMeasurement(type: .cold, appStartTimestamp: Date(timeIntervalSince1970: 6), runtimeInitSystemTimestamp: 6_000_000_000)
-        SentrySDK.setAppStartMeasurement(appStartMeasurement)
+        SentrySDKInternal.setAppStartMeasurement(appStartMeasurement)
         
         fixture.dateProvider.setDate(date: Date(timeIntervalSince1970: 7))
 
@@ -480,6 +480,86 @@ class SentryTimeToDisplayTrackerTest: XCTestCase {
         assertMeasurement(tracer: tracer, name: "time_to_full_display", duration: 1_000)
         
         XCTAssertEqual(Dynamic(self.fixture.framesTracker).listeners.count, 0)
+    }
+    
+    func testFinishSpansIfNotFinished_FullyDisplayedRecorded_ButNoNewFrame() throws {
+        // Arrange
+        fixture.dateProvider.setDate(date: Date(timeIntervalSince1970: 9))
+
+        let tracer = try fixture.getTracer()
+        
+        let sut = fixture.getSut(name: "UIViewController", waitForFullDisplay: true)
+
+        sut.start(for: tracer)
+
+        fixture.dateProvider.setDate(date: Date(timeIntervalSince1970: 10))
+        sut.reportInitialDisplay()
+        fixture.displayLinkWrapper.normalFrame()
+
+        fixture.dateProvider.setDate(date: Date(timeIntervalSince1970: 11))
+        sut.reportFullyDisplayed()
+        
+        fixture.dateProvider.setDate(date: Date(timeIntervalSince1970: 12))
+        
+        // Act
+        sut.finishSpansIfNotFinished()
+        
+        fixture.dateProvider.setDate(date: Date(timeIntervalSince1970: 13))
+        tracer.finish()
+        
+        // Assert
+        let ttidSpan = try XCTUnwrap(sut.initialDisplaySpan)
+        XCTAssertEqual(ttidSpan.startTimestamp, Date(timeIntervalSince1970: 9))
+        XCTAssertEqual(ttidSpan.timestamp, Date(timeIntervalSince1970: 10))
+        XCTAssertEqual(ttidSpan.status, .ok)
+        assertMeasurement(tracer: tracer, name: "time_to_initial_display", duration: 1_000)
+        
+        let ttfdSpan = try XCTUnwrap(sut.fullDisplaySpan)
+        XCTAssertEqual(ttfdSpan.startTimestamp, ttidSpan.startTimestamp)
+        XCTAssertEqual(ttfdSpan.timestamp, Date(timeIntervalSince1970: 12))
+        XCTAssertEqual(ttfdSpan.status, .ok)
+        XCTAssertEqual(ttfdSpan.spanDescription, "UIViewController full display")
+        XCTAssertEqual(ttfdSpan.operation, SentrySpanOperationUiLoadFullDisplay)
+        XCTAssertEqual(ttfdSpan.origin, SentryTraceOriginManualUITimeToDisplay)
+        
+        assertMeasurement(tracer: tracer, name: "time_to_full_display", duration: 3_000)
+    }
+    
+    func testFinishSpansIfNotFinished_FullyDisplayedRecorded_RemovesListener() throws {
+        // Arrange
+        fixture.dateProvider.setDate(date: Date(timeIntervalSince1970: 9))
+
+        let tracer = try fixture.getTracer()
+        
+        let sut = fixture.getSut(name: "UIViewController", waitForFullDisplay: true)
+
+        sut.start(for: tracer)
+
+        sut.reportFullyDisplayed()
+        
+        // Act
+        sut.finishSpansIfNotFinished()
+
+        // Assert
+        XCTAssertEqual(Dynamic(self.fixture.framesTracker).listeners.count, 0, "Frames tracker listener should be removed")
+    }
+    
+    func testFinishSpansIfNotFinished_RemovesFramesTrackerListener() throws {
+        // Arrange
+        fixture.dateProvider.setDate(date: Date(timeIntervalSince1970: 9))
+        let tracer = try fixture.getTracer()
+        let sut = fixture.getSut(name: "UIViewController", waitForFullDisplay: true)
+        sut.start(for: tracer)
+
+        fixture.dateProvider.setDate(date: Date(timeIntervalSince1970: 10))
+        sut.reportInitialDisplay()
+        fixture.displayLinkWrapper.normalFrame()
+        
+        // Act
+        sut.finishSpansIfNotFinished()
+        
+        // Assert
+        XCTAssertEqual(Dynamic(self.fixture.framesTracker).listeners.count, 0, "Frames tracker listener should be removed")
     }
 
     private func assertMeasurement(tracer: SentryTracer, name: String, duration: TimeInterval) {

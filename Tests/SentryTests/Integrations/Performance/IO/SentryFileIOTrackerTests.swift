@@ -1,5 +1,5 @@
 @testable import Sentry
-import SentryTestUtils
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 class SentryFileIOTrackerTests: XCTestCase {
@@ -11,7 +11,7 @@ class SentryFileIOTrackerTests: XCTestCase {
         let sentryPath = try! TestFileManager(options: Options()).sentryPath
         let sentryUrl = URL(fileURLWithPath: try! TestFileManager(options: Options()).sentryPath)
         let dateProvider = TestCurrentDateProvider()
-        let data = "SOME DATA".data(using: .utf8)!
+        let data = Data("SOME DATA".utf8)
         let threadInspector = TestThreadInspector.instance
         let imageProvider = TestDebugImageProvider()
 
@@ -33,6 +33,7 @@ class SentryFileIOTrackerTests: XCTestCase {
 
     private var fixture: Fixture!
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     override func setUp() {
         super.setUp()
         fixture = Fixture()

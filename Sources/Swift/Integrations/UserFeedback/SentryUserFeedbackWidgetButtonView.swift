@@ -4,7 +4,7 @@ import Foundation
 import UIKit
 
 @available(iOS 13.0, *)
-class SentryUserFeedbackWidgetButtonView: UIView {
+final class SentryUserFeedbackWidgetButtonView: UIView {
     // MARK: Measurements
     let svgSize: CGFloat = 16
     
@@ -13,16 +13,18 @@ class SentryUserFeedbackWidgetButtonView: UIView {
     // MARK: Properties
     
     lazy var tapGesture = UITapGestureRecognizer(target: self, action: #selector(buttonPressed))
-    let action: (SentryUserFeedbackWidgetButtonView) -> Void
+    let target: AnyObject
+    let selector: Selector
     let config: SentryUserFeedbackConfiguration
     lazy var megaphone = SentryUserFeedbackWidgetButtonMegaphoneIconView(config: config)
     
     // MARK: Initialization
     
     //swiftlint:disable function_body_length
-    init(config: SentryUserFeedbackConfiguration, action: @escaping (SentryUserFeedbackWidgetButtonView) -> Void) {
-        self.action = action
+    init(config: SentryUserFeedbackConfiguration, target: AnyObject, selector: Selector) {
         self.config = config
+        self.target = target
+        self.selector = selector
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         isAccessibilityElement = true
@@ -35,7 +37,7 @@ class SentryUserFeedbackWidgetButtonView: UIView {
         precondition(atLeastOneElement, preconditionMessage)
 #endif // DEBUG
         guard atLeastOneElement else {
-            SentryLog.warning(preconditionMessage)
+            SentrySDKLog.warning(preconditionMessage)
             return
         }
         
@@ -101,7 +103,7 @@ class SentryUserFeedbackWidgetButtonView: UIView {
     // MARK: Actions
     
     @objc func buttonPressed() {
-        self.action(self)
+        let _ = target.perform(selector)
     }
     
     // MARK: UI Elements
@@ -118,7 +120,7 @@ class SentryUserFeedbackWidgetButtonView: UIView {
 #endif // DEBUG
         
         if text.isEmpty {
-            SentryLog.warning("Attempted to show widget button with empty text label. If you don't want to show text, set `SentryUserFeedbackWidgetConfiguration.labelText` to `nil`.")
+            SentrySDKLog.warning("Attempted to show widget button with empty text label. If you don't want to show text, set `SentryUserFeedbackWidgetConfiguration.labelText` to `nil`.")
         }
         
         label.isAccessibilityElement = false

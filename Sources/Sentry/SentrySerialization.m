@@ -6,7 +6,8 @@
 #import "SentryEnvelopeItemType.h"
 #import "SentryError.h"
 #import "SentryLevelMapper.h"
-#import "SentryLog.h"
+#import "SentryLogC.h"
+#import "SentryModels+Serializable.h"
 #import "SentrySdkInfo.h"
 #import "SentrySession.h"
 #import "SentrySwift.h"
@@ -182,6 +183,7 @@ NS_ASSUME_NONNULL_BEGIN
             NSString *filename = [headerDictionary valueForKey:@"filename"];
             NSString *contentType = [headerDictionary valueForKey:@"content_type"];
             NSString *attachmentType = [headerDictionary valueForKey:@"attachment_type"];
+            NSNumber *itemCount = [headerDictionary valueForKey:@"item_count"];
 
             SentryEnvelopeItemHeader *itemHeader;
             if (nil != filename) {
@@ -191,6 +193,11 @@ NS_ASSUME_NONNULL_BEGIN
                           filename:filename
                        contentType:contentType
                     attachmentType:typeForSentryAttachmentName(attachmentType)];
+            } else if (nil != itemCount) {
+                itemHeader = [[SentryEnvelopeItemHeader alloc] initWithType:type
+                                                                     length:bodyLength
+                                                                contentType:contentType
+                                                                  itemCount:itemCount];
             } else {
                 itemHeader = [[SentryEnvelopeItemHeader alloc] initWithType:type length:bodyLength];
             }
@@ -277,12 +284,12 @@ NS_ASSUME_NONNULL_BEGIN
     return [[SentryAppState alloc] initWithJSONObject:appSateDictionary];
 }
 
-+ (NSDictionary *)deserializeDictionaryFromJsonData:(NSData *)data
++ (NSDictionary *_Nullable)deserializeDictionaryFromJsonData:(NSData *)data
 {
     NSError *error = nil;
-    NSDictionary *eventDictionary = [NSJSONSerialization JSONObjectWithData:data
-                                                                    options:0
-                                                                      error:&error];
+    NSDictionary *_Nullable eventDictionary = [NSJSONSerialization JSONObjectWithData:data
+                                                                              options:0
+                                                                                error:&error];
     if (nil != error) {
         SENTRY_LOG_ERROR(@"Failed to deserialize json item dictionary: %@", error);
     }
@@ -302,6 +309,22 @@ NS_ASSUME_NONNULL_BEGIN
     }
 
     return sentryLevelForString(eventDictionary[@"level"]);
+}
+
++ (NSArray *_Nullable)deserializeArrayFromJsonData:(NSData *)data
+{
+    NSError *error = nil;
+    id json = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
+    if (nil != error) {
+        SENTRY_LOG_ERROR(@"Failed to deserialize json item array: %@", error);
+        return nil;
+    }
+    if (![json isKindOfClass:[NSArray class]]) {
+        SENTRY_LOG_ERROR(
+            @"Deserialized json is not an NSArray, found %@", NSStringFromClass([json class]));
+        return nil;
+    }
+    return (NSArray *)json;
 }
 
 @end

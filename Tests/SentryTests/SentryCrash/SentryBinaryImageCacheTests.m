@@ -1,10 +1,12 @@
 #import "SentryBinaryImageCache+Private.h"
 #import "SentryCrashBinaryImageCache.h"
+#import "SentryCrashDynamicLinker+Test.h"
 #import "SentryCrashWrapper.h"
 #import "SentryDependencyContainer.h"
 #import <XCTest/XCTest.h>
 
 #include <mach-o/dyld.h>
+#include <mach-o/dyld_images.h>
 
 // Exposing test only functions from `SentryCrashBinaryImageCache.m`
 void sentry_setRegisterFuncForAddImage(void *addFunction);
@@ -24,7 +26,8 @@ sentry_register_func_for_add_image(
     addBinaryImage = func;
 
     if (mach_headers_expect_array) {
-        for (NSUInteger i = 0; i < mach_headers_expect_array.count; i++) {
+        // Skipping first item which is dyld and already included when starting the cache
+        for (NSUInteger i = 1; i < mach_headers_expect_array.count; i++) {
             NSValue *header = mach_headers_expect_array[i];
             func(header.pointerValue, 0);
         }
@@ -81,6 +84,10 @@ delayAddBinaryImage(void)
 {
     // Create a test cache of actual binary images to be used during tests.
     mach_headers_test_cache = [NSMutableArray array];
+
+    // Manually include dyld
+    sentrycrashdl_initialize();
+    [mach_headers_test_cache addObject:[NSValue valueWithPointer:sentryDyldHeader]];
     _dyld_register_func_for_add_image(&cacheMachHeaders);
 }
 
@@ -97,6 +104,7 @@ delayAddBinaryImage(void)
 
 - (void)tearDown
 {
+    sentrycrashdl_clearDyld();
     sentry_resetFuncForAddRemoveImage();
     sentrycrashbic_stopCache();
     sentry_setFuncForBeforeAdd(NULL);
@@ -205,14 +213,17 @@ delayAddBinaryImage(void)
 
 - (void)testRemoveImageAddAgain
 {
+    // Use index 1 since we can't dynamically insert dyld image (`dladdr` returns null)
+    int indexToRemove = 1;
+
     sentrycrashbic_startCache();
     [self assertBinaryImageCacheLength:5];
 
-    removeBinaryImage([mach_headers_expect_array[0] pointerValue], 0);
+    removeBinaryImage([mach_headers_expect_array[indexToRemove] pointerValue], 0);
     [self assertBinaryImageCacheLength:4];
 
-    NSValue *removeItem = mach_headers_expect_array[0];
-    [mach_headers_expect_array removeObjectAtIndex:0];
+    NSValue *removeItem = mach_headers_expect_array[indexToRemove];
+    [mach_headers_expect_array removeObjectAtIndex:indexToRemove];
     [self assertCachedBinaryImages];
 
     addBinaryImage(removeItem.pointerValue, 0);
@@ -225,16 +236,27 @@ delayAddBinaryImage(void)
 {
     sentrycrashbic_startCache();
     dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
-    dispatch_group_t group = dispatch_group_create();
+
+    // Guard against underflow when mach_headers_test_cache.count < 5
+    // because otherwise the expectedFulfillmentCount for the test expectation will be negative.
+    NSInteger taskCount = mach_headers_test_cache.count - 5;
+    if (taskCount <= 0) {
+        XCTFail(@"Expected a positive task count, but got %ld", taskCount);
+        return;
+    }
+
+    XCTestExpectation *expectation =
+        [self expectationWithDescription:@"Add binary images in parallel"];
+    expectation.expectedFulfillmentCount = taskCount;
 
     for (NSUInteger i = 5; i < mach_headers_test_cache.count; i++) {
-        dispatch_group_enter(group);
-        dispatch_group_async(group, queue, ^{
+        dispatch_async(queue, ^{
             addBinaryImage([mach_headers_test_cache[i] pointerValue], 0);
-            dispatch_group_leave(group);
+            [expectation fulfill];
         });
     }
-    dispatch_group_wait(group, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
+
+    [self waitForExpectations:@[ expectation ] timeout:5.0];
 
     [self assertBinaryImageCacheLength:(int)mach_headers_test_cache.count];
 }
@@ -265,7 +287,7 @@ delayAddBinaryImage(void)
     sentrycrashbic_startCache();
 
     SentryBinaryImageCache *imageCache = SentryDependencyContainer.sharedInstance.binaryImageCache;
-    [imageCache start];
+    [imageCache start:false];
     // by calling start, SentryBinaryImageCache will register a callback with
     // `SentryCrashBinaryImageCache` that should be called for every image already cached.
     XCTAssertEqual(5, imageCache.cache.count);

@@ -1,4 +1,4 @@
-import SentryTestUtils
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 class SentryCrashReportSinkTests: SentrySDKIntegrationTestsBase {
@@ -32,7 +32,7 @@ class SentryCrashReportSinkTests: SentrySDKIntegrationTestsBase {
     }
     
     func testFilterReports_CopyHubScope() {
-        SentrySDK.currentHub().scope.setEnvironment("testFilterReports_CopyHubScope")
+        SentrySDKInternal.currentHub().scope.setEnvironment("testFilterReports_CopyHubScope")
         
         let expect = expectation(description: "Callback Called")
         
@@ -40,7 +40,7 @@ class SentryCrashReportSinkTests: SentrySDKIntegrationTestsBase {
         
         let reportSink = fixture.sut
         reportSink.filterReports([report]) { _, _, _ in
-            self.assertCrashEventWithScope { _, scope in
+            self.assertFatalEventWithScope { _, scope in
                 let data = scope?.serialize()
                 XCTAssertEqual(data?["environment"] as? String, "testFilterReports_CopyHubScope")
                 expect.fulfill()
@@ -115,14 +115,14 @@ class SentryCrashReportSinkTests: SentrySDKIntegrationTestsBase {
     private func filterReportWithAttachment() {
         let report = ["attachments": ["file.png"]]
         fixture.sut.filterReports([report]) { _, _, _ in
-            self.assertCrashEventWithScope { _, scope in
+            self.assertFatalEventWithScope { _, scope in
                 XCTAssertEqual(scope?.attachments.count, 1)
             }
         }
     }
     
     private func getTestClient() -> TestClient {
-        let client = SentrySDK.currentHub().getClient() as? TestClient
+        let client = SentrySDKInternal.currentHub().getClient() as? TestClient
         
         if client == nil {
             XCTFail("Hub Client is not a `TestClient`")

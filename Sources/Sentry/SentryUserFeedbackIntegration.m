@@ -2,7 +2,6 @@
 #import "SentryDependencyContainer.h"
 #import "SentryOptions+Private.h"
 #import "SentrySDK+Private.h"
-#import "SentryScreenshot.h"
 #import "SentrySwift.h"
 
 #if TARGET_OS_IOS && SENTRY_HAS_UIKIT
@@ -25,6 +24,16 @@
                      delegate:self
            screenshotProvider:SentryDependencyContainer.sharedInstance.screenshot];
     return YES;
+}
+
+- (void)showWidget
+{
+    [_driver showWidget];
+}
+
+- (void)hideWidget
+{
+    [_driver hideWidget];
 }
 
 // MARK: SentryUserFeedbackIntegrationDriverDelegate

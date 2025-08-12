@@ -1,5 +1,6 @@
 import _SentryPrivate
-import SentryTestUtils
+@_spi(Private) @testable import Sentry
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
@@ -23,14 +24,14 @@ class SentryAppStartTrackingIntegrationTests: NotificationCenterTestCase {
 
     override class func setUp() {
         super.setUp()
-        SentryLog.configureLog(true, diagnosticLevel: .debug)
+        SentrySDKLog.configureLog(true, diagnosticLevel: .debug)
         clearTestState()
     }
     
     override func setUp() {
         super.setUp()
         fixture = Fixture()
-        SentrySDK.setAppStartMeasurement(nil)
+        SentrySDKInternal.setAppStartMeasurement(nil)
         sut = SentryAppStartTrackingIntegration()
     }
 
@@ -38,7 +39,7 @@ class SentryAppStartTrackingIntegrationTests: NotificationCenterTestCase {
         super.tearDown()
         fixture.fileManager.deleteAppState()
         PrivateSentrySDKOnly.appStartMeasurementHybridSDKMode = false
-        SentrySDK.setAppStartMeasurement(nil)
+        SentrySDKInternal.setAppStartMeasurement(nil)
         sut.stop()
         clearTestState()
     }

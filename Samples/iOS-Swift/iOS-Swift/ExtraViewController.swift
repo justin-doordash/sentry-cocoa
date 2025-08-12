@@ -1,5 +1,9 @@
+// swiftlint:disable file_length
+import AuthenticationServices
 import Foundation
+import SafariServices
 import Sentry
+import SentrySampleShared
 import UIKit
 
 class ExtraViewController: UIViewController {
@@ -13,8 +17,8 @@ class ExtraViewController: UIViewController {
     @IBOutlet weak var dataMarshalingStatusLabel: UILabel!
     @IBOutlet weak var dataMarshalingErrorLabel: UILabel!
     
-    @IBOutlet weak var dsnView: UIView!
     private let dispatchQueue = DispatchQueue(label: "ExtraViewControllers", attributes: .concurrent)
+    private var batteryConsumer: BatteryConsumer?
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -26,7 +30,6 @@ class ExtraViewController: UIViewController {
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
             self.framesLabel?.text = "Frames Total:\(PrivateSentrySDKOnly.currentScreenFrames.total) Slow:\(PrivateSentrySDKOnly.currentScreenFrames.slow) Frozen:\(PrivateSentrySDKOnly.currentScreenFrames.frozen)"
         }
-
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -48,9 +51,28 @@ class ExtraViewController: UIViewController {
         }
         
         SentrySDK.reportFullyDisplayed()
-        
-        addDSNDisplay(self, vcview: dsnView)
     }
+  
+  @IBAction func highEnergyCPU(_ sender: UIButton) {
+    highlightButton(sender)
+    if #available(iOS 15.0, *) {
+      batteryConsumer = BatteryConsumer(qos: .userInitiated)
+      batteryConsumer?.start()
+    }
+  }
+  
+  @IBAction func lowEnergyCPU(_ sender: UIButton) {
+    highlightButton(sender)
+    if #available(iOS 15.0, *) {
+      batteryConsumer = BatteryConsumer(qos: .background)
+      batteryConsumer?.start()
+    }
+  }
+  
+  @IBAction func stopUsingEnergy(_ sender: UIButton) {
+    highlightButton(sender)
+    batteryConsumer?.stop()
+  }
     
     @IBAction func anrDeadlock(_ sender: UIButton) {
         highlightButton(sender)
@@ -141,10 +163,35 @@ class ExtraViewController: UIViewController {
         navigationController?.pushViewController(WebViewController(), animated: true)
     }
 
+    @IBAction func openSafariWebView(_ sender: UIButton) {
+        guard let url = URL(string: "https://docs.sentry.io/platforms/apple/guides/ios/") else {
+            fatalError("The hard-coded URL is invalid.")
+        }
+        let safariVC = SFSafariViewController(url: url)
+        safariVC.modalPresentationStyle = .pageSheet
+        self.present(safariVC, animated: true)
+    }
+
+    @available(iOS 13.0, *)
+    @IBAction func openAuthenticationServicesWebView(_ sender: UIButton) {
+        let url = URL(string: "https://sentry.io/auth/login/")!
+        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "sentry-callback") { url, error in
+            if let error = error {
+                print("[iOS-Swift] ASWebAuthenticationSession failed with error: \(error.localizedDescription)")
+            } else if let url = url {
+                print("[iOS-Swift] ASWebAuthenticationSession completed with URL: \(url)")
+            } else {
+                print("[iOS-Swift] ASWebAuthenticationSession completed without URL or error.")
+            }
+        }
+        session.presentationContextProvider = self
+        session.start()
+    }
+
     @IBAction func captureUserFeedbackV2(_ sender: UIButton) {
         highlightButton(sender)
         var attachments: [Data]?
-        if let url = Bundle.main.url(forResource: "screenshot", withExtension: "png"), let data = try? Data(contentsOf: url) {
+        if let url = BundleResourceProvider.screenshotURL, let data = try? Data(contentsOf: url) {
             attachments = [data]
         }
         let errorEventID = SentrySDK.capture(error: NSError(domain: "test-error.user-feedback.iOS-Swift", code: 1))
@@ -160,11 +207,15 @@ class ExtraViewController: UIViewController {
             scope.setLevel(.fatal)
         }
 
+      #if SDK_V9
+        print("SDK V9 does not support user feedback.")
+      #else
         let userFeedback = UserFeedback(eventId: eventId)
         userFeedback.comments = "It broke on iOS-Swift. I don't know why, but this happens."
         userFeedback.email = "john@me.com"
         userFeedback.name = "John Me"
         SentrySDK.capture(userFeedback: userFeedback)
+      #endif // SDK_V9
     }
 
     @IBAction func permissions(_ sender: UIButton) {
@@ -191,6 +242,7 @@ class ExtraViewController: UIViewController {
     @IBAction func startSDK(_ sender: UIButton) {
         highlightButton(sender)
         SentrySDKWrapper.shared.startSentry()
+        SampleAppDebugMenu.shared.display()
     }
 
     @IBAction func causeFrozenFrames(_ sender: Any) {
@@ -298,7 +350,7 @@ class ExtraViewController: UIViewController {
         }
         var waitingForFeedbackAttachment = false
         let parsedEnvelopeContents = envelopeFileContents.split(separator: "\n").map { line in
-            if let imageData = Data(base64Encoded: String(line), options: []) {
+            if let _ = Data(base64Encoded: String(line), options: []) {
                 guard !waitingForFeedbackAttachment else {
                     waitingForFeedbackAttachment = false
                     return EnvelopeContent.feedbackAttachment(String(line))
@@ -344,4 +396,31 @@ class ExtraViewController: UIViewController {
             result["item_header_type"] = json["type"]
         }
     }
+
+    @IBAction func showFeedbackWidget(_ sender: Any) {
+        if #available(iOS 13.0, *) {
+            SentrySDK.feedback.showWidget()
+        } else {
+            showToast(in: self, type: .warning, message: "Feedback widget only available in iOS 13 or later.")
+        }
+    }
+
+    @IBAction func hideFeedbackWidget(_ sender: Any) {
+        if #available(iOS 13.0, *) {
+            SentrySDK.feedback.hideWidget()
+        } else {
+            showToast(in: self, type: .warning, message: "Feedback widget only available in iOS 13 or later.")
+        }
+    }
 }
+
+@available(iOS 13.0, *)
+extension ExtraViewController: ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        guard let window = view.window else {
+            fatalError("No window available for ASAuthorizationControllerPresentationContextProviding.")
+        }
+        return window
+    }
+}
+// swiftlint:enable file_length

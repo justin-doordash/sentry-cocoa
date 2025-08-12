@@ -6,7 +6,7 @@
 #import "SentryFrame.h"
 #import "SentryHub+Private.h"
 #import "SentryInternalDefines.h"
-#import "SentryLog.h"
+#import "SentryLogC.h"
 #import "SentryNSProcessInfoWrapper.h"
 #import "SentryOptions.h"
 #import "SentrySDK+Private.h"
@@ -34,8 +34,14 @@
 
 NSString *const SENTRY_TRACKING_COUNTER_KEY = @"SENTRY_TRACKING_COUNTER_KEY";
 
-+ (instancetype)sharedInstance
++ (instancetype _Nullable)sharedInstance
 {
+    // It is necessary to check if the SDK is enabled because accessing the tracker will otherwise
+    // initialize the depency container without any configured SDK options. This is a known issue
+    // and needs to be fixed in general.
+    if (!SentrySDK.isEnabled) {
+        return nil;
+    }
     return SentryDependencyContainer.sharedInstance.fileIOTracker;
 }
 
@@ -203,7 +209,7 @@ NSString *const SENTRY_TRACKING_COUNTER_KEY = @"SENTRY_TRACKING_COUNTER_KEY";
     }
 
     NSString *spanDescription = [self transactionDescriptionForFile:path fileSize:size];
-    id<SentrySpan> _Nullable currentSpan = [SentrySDK.currentHub.scope span];
+    id<SentrySpan> _Nullable currentSpan = [SentrySDKInternal.currentHub.scope span];
     if (currentSpan == NULL) {
         SENTRY_LOG_DEBUG(@"No transaction bound to scope. Won't track file IO operation.");
         return nil;
@@ -316,7 +322,7 @@ NSString *const SENTRY_TRACKING_COUNTER_KEY = @"SENTRY_TRACKING_COUNTER_KEY";
 
 - (BOOL)ignoreFile:(NSString *)path
 {
-    SentryFileManager *fileManager = [SentrySDK.currentHub getClient].fileManager;
+    SentryFileManager *fileManager = [SentrySDKInternal.currentHub getClient].fileManager;
     return fileManager.sentryPath != nil && [path hasPrefix:fileManager.sentryPath];
 }
 

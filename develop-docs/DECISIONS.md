@@ -273,7 +273,7 @@ The SDK manually creates a JSON-like dict:
 And then the [SentryEnvelope](https://github.com/getsentry/sentry-cocoa/blob/72e34fae44b817d8c12490bbc5c1ce7540f86762/Sources/Sentry/SentryEnvelope.m#L70-L90) calls serialize on the event and then converts it to JSON data.
 
 ```objectivec
- NSData *json = [SentrySerialization dataWithJSONObject:[event serialize]];
+NSData *json = [SentrySerialization dataWithJSONObject:[event serialize]];
 ```
 
 To implement a deserialized method, we would need to manually implement the counterparts, which is plenty of code. As ObjC is slowly dying out and the future is Swift, we would like to avoid writing plenty of ObjC code that we will convert to Swift in the future.
@@ -307,7 +307,7 @@ To do this conversion safely, we should do it in a major release. We need to con
 The [SentryEnvelope](https://github.com/getsentry/sentry-cocoa/blob/72e34fae44b817d8c12490bbc5c1ce7540f86762/Sources/Sentry/SentryEnvelope.m#L70-L90) first creates a JSON dict and then converts it to JSON data. Instead, we could directly use the Swift JSONEncoder to save one step in between. This would convert the classes to JSON data directly.
 
 ```objectivec
- NSData *json = [SentrySerialization dataWithJSONObject:[event serialize]];
+NSData *json = [SentrySerialization dataWithJSONObject:[event serialize]];
 ```
 
 All that said, I suggest converting all public protocol classes to Swift and switching to Swift Codable for serialization, cause it will be less code and more future-proof. Of course, we will run into problems and challenges on the way, but it’s worth doing it.
@@ -384,3 +384,52 @@ We can also start with this option to evaluate Swift Codable and switch to optio
 #### Cons
 
 1. Duplicate code.
+
+## Platform version support
+
+Date: March 11, 2025
+Contributors: @armcknight, @philipphofmann, @kahest
+
+We will support versions of each platform going back 4 major versions, but we support no version which is not debuggable by the current Xcode required to submit apps to stores. There are 3 considerations:
+
+1. The distribution of events we receive from the various versions of iOS etc in the wild.
+1. Xcode support. As of the time of this writing, the oldest version of Xcode that can still submit apps to the app store is Xcode 15, which supports back to iOS 12, while the current is iOS 18.
+1. GitHub Actions support. This dictates which versions we can automatically test. Their oldest [macOS runner image](https://github.com/actions/runner-images/tree/main/images/macos) is `macos-13` with support going back to iOS 16.1
+
+Our major-4 standard would place us right in the middle of the earliest Xcode and GitHub Actions supported versions, which seems like a reasonable standard.
+
+Those versions that cannot be automatically tested with GitHub Actions shall be declared as "best effort" support.
+
+See previous discussion at https://github.com/getsentry/sentry-cocoa/issues/3846.
+
+## Use preinstalled GH actions simulators
+
+Creating simulators in GH actions can take up to five minutes or more. Instead, we use the preinstalled simulators for unit and UI tests to speed up CI. We also noticed that tests are more likely to flake due to being unable to launch the app for UI tests and such. We don't have hard evidence to prove this, and these problems could vanish if GH action runners improve. It makes sense to work with what's preinstalled instead and not messing around with the CI environment. If we need to test on a specific OS version, we should use a GH action image with an Xcode version tied to that specific OS version.
+
+## Do not use Swift String constants in ObjC code
+
+Date: April 11, 2025
+Contributors: @philipphofmann, @philprime, @kahest
+
+Due to a potential memory-management bug in the Swift standard library for bridging `String` to Objective-C, we experienced SDK crashes when accessing Swift String constants from an Objective-C `NSBlock` closure.
+
+To avoid this issue, we should not use Swift String constants in Objective-C code and instead define them as Objective-C constants.
+
+Related links:
+
+- https://github.com/getsentry/sentry-cocoa/issues/4887
+- https://github.com/getsentry/sentry-cocoa/pull/4910
+
+## Decodable conformances to ObjC types
+
+A few types that are defined in ObjC have Decodable conformances in "Sources/Swift/Protocol/Codable/". This works for xcodebuild where ObjC and Swift are in the same target
+but not for SPM where ObjC and Swift have to be in different targets. This is because Swift does not support adding a protocol conformance to a type in a different module
+than the one the type/protocol is defined in. To work around this Swift code subclasses the ObjC type and adds the conformance to the subclass. It is then decoded as a
+subclass and cast back to the superclass. This is only done for SPM, not xcodebuild, because the Codable conformance is part of the public API and therefore requires a
+major version bump to change.
+
+Future types conforming to Decodable can be written in Swift from the start and therefore have the conformance added directly to the type.
+
+## v9
+
+Work on the v9 SDK is being done behind the compiler flag `SDK_V9`. CI builds the SDK with this flag enabled to ensure it does not break during the course of non-v9 development. This SDK version will focus on quality and be a part of Sentry’s quality quarter initiative. Notably, the minimum supported OS version will be bumped in this release. The changelog for this release is being tracked in [CHANGELOG-v9.md](../CHANGELOG-v9.md).

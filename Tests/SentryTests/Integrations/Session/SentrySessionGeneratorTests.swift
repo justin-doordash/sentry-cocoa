@@ -1,5 +1,5 @@
-@testable import Sentry
-import SentryTestUtils
+@_spi(Private) @testable import Sentry
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 /**
@@ -22,6 +22,7 @@ class SentrySessionGeneratorTests: NotificationCenterTestCase {
     private var options: Options!
     private var fileManager: SentryFileManager!
     
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     override func setUp() {
         super.setUp()
         
@@ -98,10 +99,10 @@ class SentrySessionGeneratorTests: NotificationCenterTestCase {
             // Almost always the AutoSessionTrackingIntegration is faster
             // than the SentryCrashIntegration creating the event from the
             // crash report on a background thread.
-            let crashEvent = Event()
-            crashEvent.level = SentryLevel.fatal
-            crashEvent.message = SentryMessage(formatted: "Crash for SentrySessionGeneratorTests")
-            SentrySDK.captureCrash(crashEvent)
+            let fatalEvent = Event()
+            fatalEvent.level = SentryLevel.fatal
+            fatalEvent.message = SentryMessage(formatted: "Crash for SentrySessionGeneratorTests")
+            SentrySDKInternal.captureFatalEvent(fatalEvent)
         }
         sentryCrash.internalCrashedLastLaunch = false
         
@@ -118,7 +119,7 @@ class SentrySessionGeneratorTests: NotificationCenterTestCase {
             autoSessionTrackingIntegration.install(with: options)
             goToForeground()
             
-            SentrySDK.captureCrash(TestData.oomEvent)
+            SentrySDKInternal.captureFatalEvent(TestData.oomEvent)
         }
         fileManager.deleteAppState()
         #endif
@@ -141,9 +142,9 @@ class SentrySessionGeneratorTests: NotificationCenterTestCase {
         SentrySDK.start(options: options)
         
         sentryCrash = TestSentryCrashWrapper.sharedInstance()
-        let client = SentrySDK.currentHub().getClient()
+        let client = SentrySDKInternal.currentHub().getClient()
         let hub = SentryHub(client: client, andScope: nil, andCrashWrapper: self.sentryCrash, andDispatchQueue: SentryDispatchQueueWrapper())
-        SentrySDK.setCurrentHub(hub)
+        SentrySDKInternal.setCurrentHub(hub)
         
         crashIntegration = SentryCrashIntegration(crashAdapter: sentryCrash, andDispatchQueueWrapper: TestSentryDispatchQueueWrapper())
         crashIntegration.install(with: options)

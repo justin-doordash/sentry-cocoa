@@ -1,6 +1,6 @@
 import _SentryPrivate
 import Foundation
-@testable import Sentry
+@_spi(Private) @testable import Sentry
 
 public class TestHub: SentryHub {
 
@@ -26,14 +26,14 @@ public class TestHub: SentryHub {
         endSessionTimestamp = timestamp
     }
     
-    public var sentCrashEvents = Invocations<Event>()
-    public override func captureCrash(_ event: Event) {
-        sentCrashEvents.record(event)
+    public var sentFatalEvents = Invocations<Event>()
+    public override func captureFatalEvent(_ event: Event) {
+        sentFatalEvents.record(event)
     }
     
-    public var sentCrashEventsWithScope = Invocations<(event: Event, scope: Scope)>()
-    public override func captureCrash(_ event: Event, with scope: Scope) {
-        sentCrashEventsWithScope.record((event, scope))
+    public var sentFatalEventsWithScope = Invocations<(event: Event, scope: Scope)>()
+    public override func captureFatalEvent(_ event: Event, with scope: Scope) {
+        sentFatalEventsWithScope.record((event, scope))
     }
     
     public var capturedEventsWithScopes = Invocations<(event: Event, scope: Scope, additionalEnvelopeItems: [SentryEnvelopeItem])>()
@@ -51,8 +51,8 @@ public class TestHub: SentryHub {
     }
     
     public var onReplayCapture: (() -> Void)?
-    public var capturedReplayRecordingVideo = Invocations<(replay: SentryReplayEvent, recording: SentryReplayRecording, video: URL)>()
-    public override func capture(_ replayEvent: SentryReplayEvent, replayRecording: SentryReplayRecording, video videoURL: URL) {
+    @_spi(Private) public var capturedReplayRecordingVideo = Invocations<(replay: SentryReplayEvent, recording: SentryReplayRecording, video: URL)>()
+    @_spi(Private) public override func capture(_ replayEvent: SentryReplayEvent, replayRecording: SentryReplayRecording, video videoURL: URL) {
         capturedReplayRecordingVideo.record((replayEvent, replayRecording, videoURL))
         onReplayCapture?()
     }

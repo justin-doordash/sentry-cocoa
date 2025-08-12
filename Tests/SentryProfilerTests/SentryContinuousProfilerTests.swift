@@ -1,16 +1,17 @@
 import _SentryPrivate
-@testable import Sentry
-import SentryTestUtils
+@_spi(Private) @testable import Sentry
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 #if os(iOS) || os(macOS) || targetEnvironment(macCatalyst)
 
+@available(*, deprecated, message: "This is only marked as deprecated because profilesSampleRate is marked as deprecated. Once that is removed this can be removed.")
 final class SentryContinuousProfilerTests: XCTestCase {
     private var fixture: SentryProfileTestFixture!
     
     override class func setUp() {
         super.setUp()
-        SentryLog.configure(true, diagnosticLevel: .debug)
+        SentrySDKLogSupport.configure(true, diagnosticLevel: .debug)
     }
     
     override func setUp() {
@@ -75,9 +76,24 @@ final class SentryContinuousProfilerTests: XCTestCase {
     func testStartingContinuousProfilerWithZeroSampleRate() throws {
         fixture.options.profilesSampleRate = 0
         try performContinuousProfilingTest()
-    }    
+    }
 
-    #if !os(macOS)
+#if !os(macOS)
+
+    func testStopsFramesTracker_WhenAutoPerformanceAndAppHangsV2Disabled() throws {
+        fixture.options.enableAutoPerformanceTracing = false
+        try performContinuousProfilingTest()
+
+        XCTAssertFalse(SentryDependencyContainer.sharedInstance().framesTracker.isRunning)
+    }
+
+    func testDoesNotStopFramesTracker_WhenAppHangsV2Enabled() throws {
+        fixture.options.enableAppHangTrackingV2 = true
+        try performContinuousProfilingTest()
+
+        XCTAssertTrue(SentryDependencyContainer.sharedInstance().framesTracker.isRunning)
+    }
+
     // test that receiving a background notification stops the continuous
     // profiler after it has been started manually
     func testStoppingContinuousProfilerStopsOnBackground() throws {
@@ -105,7 +121,7 @@ final class SentryContinuousProfilerTests: XCTestCase {
         SentrySDK.close()
         try assertContinuousProfileStoppage()
     }
-    
+
     func testStartingAPerformanceTransactionDoesNotStartProfiler() throws {
         let manualSpan = try fixture.newTransaction()
         XCTAssertFalse(SentryContinuousProfiler.isCurrentlyProfiling())
@@ -141,28 +157,74 @@ final class SentryContinuousProfilerTests: XCTestCase {
         XCTAssertEqual(2, self.fixture.client?.captureEnvelopeInvocations.count)
     }
     
-    func testChunkSerializationAfterBufferInterval() throws {
+    func testChunkSerializationExecutesOnBackgroundThread() throws {
         SentryContinuousProfiler.start()
         XCTAssert(SentryContinuousProfiler.isCurrentlyProfiling())
         
-        // Advance time by the buffer interval to trigger chunk serialization
+        // Prevent background serialization from executing automatically
+        fixture.dispatchQueueWrapper.dispatchAsyncExecutesBlock = false
+
+        // Memoize how many dispatch asyncs were called during system setup; we'll expect one more for the serialization after simulating the timer elapse below where the serialization should take place
+        let currentAsyncDispatches = fixture.dispatchQueueWrapper.dispatchAsyncCalled
+
+        // Trigger chunk creation by advancing time and firing timer
         fixture.currentDateProvider.advanceBy(interval: 60)
         try fixture.timeoutTimerFactory.check()
         
-        // Check that a chunk was serialized and sent
-        let envelope = try XCTUnwrap(self.fixture.client?.captureEnvelopeInvocations.last)
+        // Validate that no envelope was captured yet (serialization hasn't completed)
+        XCTAssertTrue(fixture.client?.captureEnvelopeInvocations.isEmpty ?? true)
+        
+        // Validate that background work was queued (serialization will be performed on background thread)
+        XCTAssertEqual(fixture.dispatchQueueWrapper.dispatchAsyncCalled, currentAsyncDispatches + 1)
+
+        // Execute the background serialization work
+        fixture.dispatchQueueWrapper.dispatchAsyncExecutesBlock = true
+        fixture.dispatchQueueWrapper.invokeLastDispatchAsync()
+        
+        // Validate that background work completed:
+        // - Envelope was captured with profile chunk
+        let envelope = try XCTUnwrap(fixture.client?.captureEnvelopeInvocations.last)
         let profileItem = try XCTUnwrap(envelope.items.first)
         XCTAssertEqual("profile_chunk", profileItem.header.type)
         
-        // Ensure the profiler is still running
+        // Profiler should still be running after chunk serialization
         XCTAssert(SentryContinuousProfiler.isCurrentlyProfiling())
         
-        // Stop the profiler
+        // Clean up
         SentryContinuousProfiler.stop()
         try assertContinuousProfileStoppage()
     }
+
+    func testStoppingAndStartingAgainBeforeFinalChunkCompletesResultsInOneProfile() throws {
+        // arrange
+        SentryContinuousProfiler.start()
+        XCTAssert(SentryContinuousProfiler.isCurrentlyProfiling())
+
+        // act
+        fixture.currentDateProvider.advanceBy(interval: 1)
+        SentryContinuousProfiler.stop()
+
+        fixture.currentDateProvider.advanceBy(interval: 1)
+        XCTAssert(SentryContinuousProfiler.isCurrentlyProfiling())
+
+        fixture.currentDateProvider.advanceBy(interval: 1)
+        SentryContinuousProfiler.start()
+
+        fixture.currentDateProvider.advanceBy(interval: 60)
+        try fixture.timeoutTimerFactory.check()
+        XCTAssert(SentryContinuousProfiler.isCurrentlyProfiling())
+
+        fixture.currentDateProvider.advanceBy(interval: 1)
+        SentryContinuousProfiler.stop()
+
+        // assert
+        fixture.currentDateProvider.advanceBy(interval: 60)
+        try fixture.timeoutTimerFactory.check()
+        XCTAssertFalse(SentryContinuousProfiler.isCurrentlyProfiling())
+    }
 }
 
+@available(*, deprecated, message: "This is only marked as deprecated because profilesSampleRate is marked as deprecated. Once that is removed this can be removed.")
 private extension SentryContinuousProfilerTests {
     func addMockSamples(mockAddresses: [NSNumber]) throws {
         let mockThreadMetadata = SentryProfileTestFixture.ThreadMetadata(id: 1, priority: 2, name: "main")
@@ -214,6 +276,7 @@ private extension SentryContinuousProfilerTests {
         XCTAssertEqual(1, envelope.items.count)
         let profileItem = try XCTUnwrap(envelope.items.first)
         XCTAssertEqual("profile_chunk", profileItem.header.type)
+        XCTAssertEqual("cocoa", profileItem.header.platform)
         let data = profileItem.data
         let profile = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
 
@@ -293,8 +356,10 @@ private extension SentryContinuousProfilerTests {
 
         try assertMetricValue(measurements: measurements, key: kSentryMetricProfilerSerializationKeyMemoryFootprint, expectedValue: fixture.mockMetrics.memoryFootprint, expectedUnits: kSentryMetricProfilerSerializationUnitBytes, chunkStartTime: chunkStartTime, chunkEndTime: chunkEndTime, readingsPerBatch: expectedReadingsPerBatch)
 
+        #if arch(arm) || arch(arm64)
         // we wind up with one less energy reading for the first chunk's metric sample. since we must use the difference between readings to get actual values, the first one is only the baseline reading.
         try assertMetricValue(measurements: measurements, key: kSentryMetricProfilerSerializationKeyCPUEnergyUsage, expectedValue: fixture.mockMetrics.cpuEnergyUsage, expectedUnits: kSentryMetricProfilerSerializationUnitNanoJoules, chunkStartTime: chunkStartTime, chunkEndTime: chunkEndTime, readingsPerBatch: expectedReadingsPerBatch, expectOneLessEnergyReading: countMetricsReadingAtProfileStart)
+        #endif // arch(arm) || arch(arm64)
 
 #if !os(macOS)
         try assertMetricEntries(measurements: measurements, key: kSentryProfilerSerializationKeySlowFrameRenders, expectedEntries: fixture.expectedContinuousProfileSlowFrames, chunkStartTime: chunkStartTime, chunkEndTime: chunkEndTime)

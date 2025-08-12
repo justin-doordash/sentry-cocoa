@@ -1,0 +1,66 @@
+name: Lint Clang
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "**/*.h"
+      - "**/*.hpp"
+      - "**/*.c"
+      - "**/*.cpp"
+      - "**/*.m"
+      - "**/*.mm"
+      - ".github/workflows/lint-clang-formatting.yml"
+      - ".clang-format"
+      - "Makefile" # Make commands used for formatting setup
+      - "Brewfile*" # Tools installation affects formatting environment
+
+  pull_request:
+    paths:
+      - "**/*.h"
+      - "**/*.hpp"
+      - "**/*.c"
+      - "**/*.cpp"
+      - "**/*.m"
+      - "**/*.mm"
+      - ".github/workflows/lint-clang-formatting.yml"
+      - ".clang-format"
+      - "Makefile" # Make commands used for formatting setup
+      - "Brewfile*" # Tools installation affects formatting environment
+
+# Concurrency configuration:
+# - We use workflow-specific concurrency groups to prevent multiple lint runs on the same code,
+#   as linting checks are deterministic and don't require parallel validation.
+# - For pull requests, we cancel in-progress runs when new commits are pushed since only the
+#   latest linting matters for merge decisions.
+# - For main branch pushes, we never cancel formatting checks to ensure our code maintains consistent style
+#   standards across the entire project.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    # While ubuntu runners have clang-format preinstalled, they use an older version. We want to use the most recent one,
+    # that we can easily install locally via brew.
+    name: Lint
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tooling
+        run: make init-ci-format
+
+      - name: Format with Clang
+        run: make format-clang
+
+      - name: Check for Formatting Changes
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "❌ Some code formatted with clang-format is not formatted correctly. Please run 'make format' and commit the changes."
+            git status
+            git diff
+            exit 1
+          else
+            echo "✅ All code is formatted correctly."
+          fi

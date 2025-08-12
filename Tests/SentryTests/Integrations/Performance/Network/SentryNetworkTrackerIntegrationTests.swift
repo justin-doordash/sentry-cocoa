@@ -1,5 +1,5 @@
 @testable import Sentry
-import SentryTestUtils
+@_spi(Private) import SentryTestUtils
 import SwiftUI
 import XCTest
 
@@ -16,6 +16,7 @@ class SentryNetworkTrackerIntegrationTests: XCTestCase {
         let dateProvider = TestCurrentDateProvider()
         let options: Options
         
+        @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
         init() {
             options = Options()
             options.dsn = SentryNetworkTrackerIntegrationTests.dsnAsString
@@ -26,6 +27,7 @@ class SentryNetworkTrackerIntegrationTests: XCTestCase {
     
     private var fixture: Fixture!
     
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     override func setUp() {
         super.setUp()
         fixture = Fixture()
@@ -149,7 +151,7 @@ class SentryNetworkTrackerIntegrationTests: XCTestCase {
         
         wait(for: [expect], timeout: 5)
         
-        let scope = SentrySDK.currentHub().scope
+        let scope = SentrySDKInternal.currentHub().scope
         let breadcrumbs = Dynamic(scope).breadcrumbArray as [Breadcrumb]?
         XCTAssertEqual(1, breadcrumbs?.count)
     }
@@ -173,10 +175,10 @@ class SentryNetworkTrackerIntegrationTests: XCTestCase {
         dataTask.resume()
         wait(for: [expect], timeout: 5)
         
-        let children = Dynamic(transaction).children as [Span]?
-        
-        XCTAssertEqual(children?.count, 1) //Span was created in task resume swizzle.
-        let networkSpan = try XCTUnwrap(children?.first)
+        let children = try XCTUnwrap(Dynamic(transaction).children as [Span]?)
+
+        XCTAssertEqual(children.count, 1) //Span was created in task resume swizzle.
+        let networkSpan = try XCTUnwrap(children.first)
         XCTAssertTrue(networkSpan.isFinished) //Span was finished in task setState swizzle.
         XCTAssertEqual(SentrySpanOperationNetworkRequestOperation, networkSpan.operation)
         XCTAssertEqual("GET \(SentryNetworkTrackerIntegrationTests.testBaggageURL)", networkSpan.spanDescription)
