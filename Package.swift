@@ -19,18 +19,18 @@ var products: [Product] = [
 var targets: [Target] = [
     .binaryTarget(
         name: "Sentry",
-        url: "https://github.com/getsentry/sentry-cocoa/releases/download/8.54.1-alpha.1/Sentry.xcframework.zip",
-        checksum: "dd40d912578d1e5567a25fdc393958189fd4e82c33e03165df7b4db98c378968" //Sentry-Static
+        url: "https://ddartifacts.jfrog.io/artifactory/swift-general-local/Sentry/8.53.1/Sentry.xcframework.zip",
+        checksum: "d3f18bc508777465bca0ba977bef408616eadfbe46c114ec6f0a437662373d32" //Sentry-Static
     ),
     .binaryTarget(
         name: "Sentry-Dynamic",
-        url: "https://github.com/getsentry/sentry-cocoa/releases/download/8.54.1-alpha.1/Sentry-Dynamic.xcframework.zip",
-        checksum: "b648c18fe2e57be90d43740003a92601eeab1c6d0e33bd29cb321cc09783bac2" //Sentry-Dynamic
+        url: "https://ddartifacts.jfrog.io/artifactory/swift-general-local/Sentry/8.53.1/Sentry-Dynamic.xcframework.zip",
+        checksum: "b68ed3f33747d84472bc7e63052a2812861fd6ccbcb3e5b9ee8103638c4f8f8c" //Sentry-Dynamic
     ),
     .binaryTarget(
         name: "Sentry-Dynamic-WithARM64e",
-        url: "https://github.com/getsentry/sentry-cocoa/releases/download/8.54.1-alpha.1/Sentry-Dynamic-WithARM64e.xcframework.zip",
-        checksum: "2625b02516b00127d92e4ddc0ae59dec90f87114a5956c484d8906b7d049856e" //Sentry-Dynamic-WithARM64e
+        url: "https://ddartifacts.jfrog.io/artifactory/swift-general-local/Sentry/8.53.1/Sentry-Dynamic-WithARM64e.xcframework.zip",
+        checksum: "fdebc7362b4bf6656a8f95f34f97f8430f76edb47b704007503bb5bae7dbed3e" //Sentry-Dynamic-WithARM64e
     ),
     .target (
         name: "SentrySwiftUI",
