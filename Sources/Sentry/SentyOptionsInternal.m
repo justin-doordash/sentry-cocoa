@@ -319,10 +319,10 @@
     }
 
     [self setBool:options[@"enableBeforeCrashHandler"]
-            block:^(BOOL value) { self->_enableBeforeCrashHandler = value; }];
+            block:^(BOOL value) { sentryOptions.enableBeforeCrashHandler = value; }];
 
     if ([self isBlock:options[@"beforeCrash"]]) {
-        self.beforeCrash = options[@"beforeCrash"];
+        sentryOptions.beforeCrash = options[@"beforeCrash"];
     }
 
 #if !SDK_V9
