@@ -24,11 +24,11 @@ sentry_threadSanitizerIsPresent(void)
 #    if defined(SENTRY_TEST) || defined(SENTRY_TEST_CI) || defined(DEBUG)
 
 void
-sentry_writeProfileFile(NSData *JSONData)
+sentry_writeProfileFile(NSData *JSONData, BOOL continuous)
 {
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSString *testProfileDirPath =
-        [sentryStaticCachesPath() stringByAppendingPathComponent:@"profiles"];
+    NSString *testProfileDirPath = [sentryStaticBasePath()
+        stringByAppendingPathComponent:continuous ? @"continuous-profiles" : @"trace-profiles"];
 
     if (![fm fileExistsAtPath:testProfileDirPath]) {
         SENTRY_LOG_DEBUG(@"Creating Sentry static cache directory.");
@@ -65,7 +65,7 @@ sentry_writeProfileFile(NSData *JSONData)
     SENTRY_LOG_DEBUG(@"Writing profile to file: %@.", pathToWrite);
 
     SENTRY_CASSERT([JSONData writeToFile:pathToWrite options:NSDataWritingAtomic error:&error],
-        @"Failed to write data to path %@: %@", pathToWrite, error);
+        @"Failed to write profile data to path %@: %@", pathToWrite, error);
 }
 
 #    endif // defined(SENTRY_TEST) || defined(SENTRY_TEST_CI) || defined(DEBUG)

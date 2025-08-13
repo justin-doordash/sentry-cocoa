@@ -1,16 +1,41 @@
 # This is used by the action https://github.com/dorny/paths-filter
 
 high_risk_code: &high_risk_code
-  - 'Sources/Sentry/SentryNSURLSessionTaskSearch.m'
-  - 'Sources/Sentry/SentryNetworkTracker.m'
-  - 'Sources/Sentry/SentryUIViewControllerSwizzling.m'
-  - 'Sources/Sentry/SentryNSDataSwizzling.m'
-  - 'Sources/Sentry/SentryNSFileManagerSwizzling.m'
-  - 'Sources/Sentry/SentrySubClassFinder.m'
-  - 'Sources/Sentry/SentryCoreDataSwizzling.m'
-  - 'Sources/Sentry/SentrySwizzleWrapper.m'
-  - 'Sources/Sentry/include/SentrySwizzle.h'
-  - 'Sources/Sentry/SentrySwizzle.m'
-  - 'Sources/Sentry/SentryFileManager.m'
-  - 'Sources/Sentry/SentrySerialization.m'
-  - 'Sources/Sentry/SentrySerialization.h'
+  - ".github/workflows/changes-in-high-risk-code.yml"
+  - "Sources/Sentry/SentryNSURLSessionTaskSearch.m"
+  - "Sources/Sentry/SentryNetworkTracker.m"
+  - "Sources/Sentry/SentryUIViewControllerSwizzling.m"
+  - "Sources/Sentry/SentryNSDataSwizzling.m"
+  - "Sources/Sentry/SentryNSFileManagerSwizzling.m"
+  - "Sources/Sentry/SentrySubClassFinder.m"
+  - "Sources/Sentry/SentryCoreDataSwizzling.m"
+  - "Sources/Sentry/SentrySwizzleWrapper.m"
+  - "Sources/Sentry/include/SentrySwizzle.h"
+  - "Sources/Sentry/SentrySwizzle.m"
+  - "Sources/Sentry/SentryFileManager.m"
+  - "Sources/Sentry/SentrySerialization.m"
+  - "Sources/Sentry/SentrySerialization.h"
+
+run_unit_tests_for_prs: &run_unit_tests_for_prs # Code
+  - "Sources/**"
+  - "Tests/**"
+  - "SentryTestUtils/**"
+  - "SentryTestUtilsDynamic/**"
+
+  # GH Actions
+  - ".github/workflows/test.yml"
+  - ".github/file-filters.yml"
+
+  # Scripts
+  - "scripts/ci-select-xcode.sh"
+  - "scripts/sentry-xcodebuild.sh"
+  - "scripts/tests-with-thread-sanitizer.sh"
+
+  # Other
+  - "test-server/**"
+  - "Sentry.xcodeproj"
+  - "**/*.xctestplan"
+  - "fastlane/**"
+  - ".codecov.yml"
+  - "Brewfile*" # Dependency installation affects test environment
+  - "Makefile" # Make commands used for CI build setup

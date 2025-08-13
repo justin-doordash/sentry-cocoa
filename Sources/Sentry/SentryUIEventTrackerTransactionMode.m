@@ -2,11 +2,12 @@
 
 #if SENTRY_HAS_UIKIT
 
+#    import "SentrySwift.h"
 #    import <SentryDependencyContainer.h>
 #    import <SentryHub+Private.h>
-#    import <SentryLog.h>
+#    import <SentryLogC.h>
 #    import <SentrySDK+Private.h>
-#    import <SentrySDK.h>
+#    import <SentrySDKInternal.h>
 #    import <SentryScope.h>
 #    import <SentrySpanId.h>
 #    import <SentrySpanOperation.h>
@@ -69,7 +70,7 @@ NS_ASSUME_NONNULL_BEGIN
                                              operation:operation
                                                 origin:SentryTraceOriginAutoUiEventTracker];
 
-    id<SentrySpan> _Nullable currentSpan = [SentrySDK.currentHub.scope span];
+    id<SentrySpan> _Nullable currentSpan = [SentrySDKInternal.currentHub.scope span];
     BOOL ongoingScreenLoadTransaction = false;
     BOOL ongoingManualTransaction = false;
     if (currentSpan != nil) {
@@ -79,11 +80,21 @@ NS_ASSUME_NONNULL_BEGIN
             = ![currentSpan.operation isEqualToString:SentrySpanOperationUiLoad]
             && ![currentSpan.operation containsString:SentrySpanOperationUiAction];
     }
-    BOOL bindToScope = !ongoingScreenLoadTransaction && !ongoingManualTransaction;
 
-    __block SentryTracer *transaction = [SentrySDK.currentHub
+    // If there is an ongoing transaction on the scope, we don’t need to start a UI event
+    // transaction because it won’t have any child spans. Only transactions bound to the scope
+    // automatically receive child spans. As a result, the UI event transaction would time out and
+    // be discarded by the tracer due to the lack of children.
+    BOOL ongoingTransaction = ongoingScreenLoadTransaction || ongoingManualTransaction;
+    if (ongoingTransaction) {
+        SENTRY_LOG_DEBUG(@"Not starting a new UI event transaction because there is already an "
+                         @"ongoing transaction bound to the scope.");
+        return;
+    }
+
+    __block SentryTracer *transaction = [SentrySDKInternal.currentHub
         startTransactionWithContext:context
-                        bindToScope:bindToScope
+                        bindToScope:YES
               customSamplingContext:@{}
                       configuration:[SentryTracerConfiguration configurationWithBlock:^(
                                         SentryTracerConfiguration *config) {
@@ -91,9 +102,7 @@ NS_ASSUME_NONNULL_BEGIN
                           config.waitForChildren = YES;
                       }]];
 
-    SENTRY_LOG_DEBUG(@"Automatically started a new transaction with name: "
-                     @"%@, bindToScope: %@",
-        action, bindToScope ? @"YES" : @"NO");
+    SENTRY_LOG_DEBUG(@"Automatically started a new transaction with name: %@", action);
 
     if (accessibilityIdentifier) {
         [transaction setTagValue:accessibilityIdentifier forKey:@"accessibilityIdentifier"];

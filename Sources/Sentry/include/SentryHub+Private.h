@@ -11,11 +11,18 @@
 @class SentryTracer;
 @class SentryTracerConfiguration;
 @class SentryReplayEvent;
+@class SentryAttachment;
 @class SentryReplayRecording;
 @protocol SentryIntegrationProtocol;
-@protocol SentrySessionListener;
 
 NS_ASSUME_NONNULL_BEGIN
+
+@protocol SentrySessionListener
+
+- (void)sentrySessionEnded:(SentrySession *)session;
+- (void)sentrySessionStarted:(SentrySession *)session;
+
+@end
 
 @interface SentryHub ()
 
@@ -34,9 +41,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (SentryClient *_Nullable)client;
 
-- (void)captureCrashEvent:(SentryEvent *)event;
+- (void)captureFatalEvent:(SentryEvent *)event;
 
-- (void)captureCrashEvent:(SentryEvent *)event withScope:(SentryScope *)scope;
+- (void)captureFatalEvent:(SentryEvent *)event withScope:(SentryScope *)scope;
+
+#if SENTRY_HAS_UIKIT
+- (void)captureFatalAppHangEvent:(SentryEvent *)event;
+#endif // SENTRY_HAS_UIKIT
 
 - (void)captureReplayEvent:(SentryReplayEvent *)replayEvent
            replayRecording:(SentryReplayRecording *)replayRecording
@@ -53,6 +64,10 @@ NS_ASSUME_NONNULL_BEGIN
                   withScope:(SentryScope *)scope
     additionalEnvelopeItems:(NSArray<SentryEnvelopeItem *> *)additionalEnvelopeItems
     NS_SWIFT_NAME(capture(event:scope:additionalEnvelopeItems:));
+
+- (void)captureSerializedFeedback:(NSDictionary *)serializedFeedback
+                      withEventId:(NSString *)feedbackEventId
+                      attachments:(NSArray<SentryAttachment *> *)feedbackAttachments;
 
 - (void)captureTransaction:(SentryTransaction *)transaction withScope:(SentryScope *)scope;
 

@@ -8,7 +8,7 @@
 #import "SentryLevelMapper.h"
 #import "SentryMessage.h"
 #import "SentryMeta.h"
-#import "SentryOptions+HybridSDKs.h"
+#import "SentryOptionsInternal.h"
 #import "SentrySDK+Private.h"
 #import <SentryBreadcrumb+Private.h>
 #import <XCTest/XCTest.h>
@@ -28,22 +28,22 @@
 
 - (void)setUp
 {
-    [SentrySDK.currentHub bindClient:nil];
+    [SentrySDKInternal.currentHub bindClient:nil];
 }
 
 - (void)testSharedClient
 {
     NSError *error = nil;
-    SentryOptions *options = [[SentryOptions alloc]
+    SentryOptions *options = [SentryOptionsInternal
             initWithDict:@{ @"dsn" : @"https://username:password@app.getsentry.com/12345" }
         didFailWithError:&error];
 
     SentryClient *client = [[SentryClient alloc] initWithOptions:options];
     XCTAssertNil(error);
-    XCTAssertNil([SentrySDK.currentHub getClient]);
-    [SentrySDK.currentHub bindClient:client];
-    XCTAssertNotNil([SentrySDK.currentHub getClient]);
-    [SentrySDK.currentHub bindClient:nil];
+    XCTAssertNil([SentrySDKInternal.currentHub getClient]);
+    [SentrySDKInternal.currentHub bindClient:client];
+    XCTAssertNotNil([SentrySDKInternal.currentHub getClient]);
+    [SentrySDKInternal.currentHub bindClient:nil];
 }
 
 - (void)testSDKDefaultHub
@@ -51,8 +51,8 @@
     [SentrySDK startWithConfigureOptions:^(SentryOptions *_Nonnull options) {
         options.dsn = @"https://username:password@app.getsentry.com/12345";
     }];
-    XCTAssertNotNil([SentrySDK.currentHub getClient]);
-    [SentrySDK.currentHub bindClient:nil];
+    XCTAssertNotNil([SentrySDKInternal.currentHub getClient]);
+    [SentrySDKInternal.currentHub bindClient:nil];
 }
 
 - (void)testSDKBreadCrumbAdd
@@ -128,6 +128,15 @@
 {
     NSDate *date = sentry_fromIso8601String(@"2020-02-27T11:35:26Z");
     XCTAssertEqual([date timeIntervalSince1970], 1582803326.0);
+}
+
+- (void)testToIso8601StringNil_ReturnsNil
+{
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnonnull"
+    NSString *dateAsString = sentry_toIso8601String(nil);
+#pragma clang diagnostic pop
+    XCTAssertNil(dateAsString);
 }
 
 @end

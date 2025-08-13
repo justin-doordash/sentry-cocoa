@@ -1,5 +1,5 @@
 @testable import Sentry
-import SentryTestUtils
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 class DataSentryTracingIntegrationTests: XCTestCase {
@@ -11,20 +11,28 @@ class DataSentryTracingIntegrationTests: XCTestCase {
             return provider
         }()
 
-        let data = "SOME DATA".data(using: .utf8)!
-        
+        let data = Data("SOME DATA".utf8)
+
         var fileUrlToRead: URL!
         var fileUrlToWrite: URL!
-        var ignoredFileUrl: URL!
+        var ignoredFileUrlToRead: URL!
+        var ignoredFileUrlToWrite: URL!
 
         init() {}
 
+        @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
         func getSut(testName: String, isSDKEnabled: Bool = true, isEnabled: Bool = true) throws -> Data {
+            let fileManager = FileManager.default
+            let tempDirUrl = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("test-\(testName.hashValue.description)")
+            try! fileManager
+                .createDirectory(at: tempDirUrl, withIntermediateDirectories: true)
+
             if isSDKEnabled {
                 SentryDependencyContainer.sharedInstance().dateProvider = mockDateProvider
 
                 SentrySDK.start { options in
-                    options.dsn = TestConstants.dsnAsString(username: "DataSentryTracingIntegrationTests")
+                    options.dsn = TestConstants.dsnAsString(username: testName)
                     options.removeAllIntegrations()
 
                     // Configure options required by File I/O tracking integration
@@ -42,35 +50,36 @@ class DataSentryTracingIntegrationTests: XCTestCase {
                     options.experimental.enableFileManagerSwizzling = false
                 }
 
-                // Get the working directory of the SDK, as the path is using the DSN hash to avoid conflicts
-                guard let sentryBasePath = SentrySDK.currentHub().getClient()?.fileManager.basePath else {
-                    preconditionFailure("Sentry base path is nil, but should be configured for test cases.")
-                }
-                let sentryBasePathUrl = URL(fileURLWithPath: sentryBasePath)
-
-                fileUrlToRead = sentryBasePathUrl.appendingPathComponent("file-to-read")
+                // The base path is not unique for the DSN, therefore we need to make it unique
+                fileUrlToRead = tempDirUrl.appendingPathComponent("test-\(testName.hashValue.description)--file-to-read")
                 try data.write(to: fileUrlToRead)
 
-                fileUrlToWrite = sentryBasePathUrl.appendingPathComponent("file-to-write")
+                fileUrlToWrite = tempDirUrl.appendingPathComponent("test-\(testName.hashValue.description)--file-to-write")
+                if fileManager.fileExists(atPath: fileUrlToWrite.path) {
+                    try fileManager.removeItem(at: fileUrlToWrite)
+                }
 
                 // Get the working directory of the SDK, as these files are ignored by default
-                guard let sentryPath = SentrySDK.currentHub().getClient()?.fileManager.sentryPath else {
+                guard let sentryPath = SentrySDKInternal.currentHub().getClient()?.fileManager.sentryPath else {
                     preconditionFailure("Sentry path is nil, but should be configured for test cases.")
                 }
                 let sentryPathUrl = URL(fileURLWithPath: sentryPath)
 
-                ignoredFileUrl = sentryPathUrl.appendingPathComponent("ignored-file")
-                try data.write(to: ignoredFileUrl)
-            } else {
-                let basePathUrl = URL(fileURLWithPath: NSTemporaryDirectory())
-                    .appendingPathComponent("test-\(testName.hashValue.description)")
-                try! FileManager.default
-                    .createDirectory(at: basePathUrl, withIntermediateDirectories: true)
+                ignoredFileUrlToRead = sentryPathUrl.appendingPathComponent("test--ignored-file-to-read")
+                try data.write(to: ignoredFileUrlToRead)
 
-                fileUrlToRead = basePathUrl.appendingPathComponent("file-to-read")
+                ignoredFileUrlToWrite = sentryPathUrl.appendingPathComponent("test--ignored-file-to-write")
+                if fileManager.fileExists(atPath: ignoredFileUrlToWrite.path) {
+                    try fileManager.removeItem(at: ignoredFileUrlToWrite)
+                }
+            } else {
+                fileUrlToRead = tempDirUrl.appendingPathComponent("file-to-read")
                 try data.write(to: fileUrlToRead)
 
-                fileUrlToWrite = basePathUrl.appendingPathComponent("file-to-write")
+                fileUrlToWrite = tempDirUrl.appendingPathComponent("file-to-write")
+                if fileManager.fileExists(atPath: fileUrlToWrite.path) {
+                    try fileManager.removeItem(at: fileUrlToWrite)
+                }
             }
             return data
         }
@@ -84,8 +93,29 @@ class DataSentryTracingIntegrationTests: XCTestCase {
         }
 
         var nonFileUrl: URL {
-            // URL to a file that is not a file but should exist at all times
-            URL(string: "https://raw.githubusercontent.com/getsentry/sentry-cocoa/refs/heads/main/.gitignore")!
+            // Use a non-file scheme that doesn't hit the network.
+            // We use a data: URL to reliably return bytes without external dependencies,
+            // ensuring this test verifies "non-file URL should not trace" deterministically.
+            URL(string: "data:text/plain;base64,SGVsbG8=")!
+        }
+
+        func tearDown() throws {
+            clearTestState()
+
+            // Delete files created by the test run
+            let manager = FileManager.default
+            if fileUrlToRead != nil && manager.fileExists(atPath: fileUrlToRead.path) {
+                try manager.removeItem(at: fileUrlToRead)
+            }
+            if fileUrlToWrite != nil && manager.fileExists(atPath: fileUrlToWrite.path) {
+                try manager.removeItem(at: fileUrlToWrite)
+            }
+            if ignoredFileUrlToRead != nil && manager.fileExists(atPath: ignoredFileUrlToRead.path) {
+                try manager.removeItem(at: ignoredFileUrlToRead)
+            }
+            if ignoredFileUrlToWrite != nil && manager.fileExists(atPath: ignoredFileUrlToWrite.path) {
+                try manager.removeItem(at: ignoredFileUrlToWrite)
+            }
         }
     }
 
@@ -96,13 +126,14 @@ class DataSentryTracingIntegrationTests: XCTestCase {
         fixture = Fixture()
     }
 
-    override func tearDown() {
+    override func tearDownWithError() throws {
         super.tearDown()
-        clearTestState()
+        try fixture.tearDown()
     }
 
     // MARK: - Data.init(contentsOfWithSentryTracing:)
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testInitContentsOfWithSentryTracing_shouldTraceManually() throws {
         // -- Arrange --
         let expectedData = try fixture.getSut(testName: self.name)
@@ -132,6 +163,7 @@ class DataSentryTracingIntegrationTests: XCTestCase {
         XCTAssertGreaterThan(endTimestamp.timeIntervalSince1970, startTimestamp.timeIntervalSince1970)
     }
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testInitContentsOfWithSentryTracingWithOptions_shouldPassOptionsToSystemImplementation() throws {
         // -- Arrange --
         let expectedData = try fixture.getSut(testName: self.name)
@@ -159,6 +191,7 @@ class DataSentryTracingIntegrationTests: XCTestCase {
         XCTAssertEqual(mappedSentryData, expectedData)
     }
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testInitContentsOfWithSentryTracing_throwsError_shouldTraceManuallyWithErrorRethrow() throws {
         // -- Arrange --
         let _ = try fixture.getSut(testName: self.name)
@@ -185,6 +218,7 @@ class DataSentryTracingIntegrationTests: XCTestCase {
         XCTAssertGreaterThan(endTimestamp.timeIntervalSince1970, startTimestamp.timeIntervalSince1970)
     }
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testInitContentsOfWithSentryTracing_nonFileUrl_shouldNotTraceManually() throws {
         // -- Arrange --
         let _ = try fixture.getSut(testName: self.name)
@@ -198,6 +232,7 @@ class DataSentryTracingIntegrationTests: XCTestCase {
         XCTAssertEqual(parentTransaction.children.count, 0)
     }
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testInitContentsOfWithSentryTracing_trackerIsNotEnabled_shouldNotTraceManually() throws {
         // -- Arrange --
         let _ = try fixture.getSut(testName: self.name, isEnabled: false)
@@ -211,19 +246,21 @@ class DataSentryTracingIntegrationTests: XCTestCase {
         XCTAssertEqual(parentTransaction.children.count, 0)
     }
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testInitContentsOfWithSentryTracing_fileIsIgnored_shouldNotTraceManually() throws {
         // -- Arrange --
         let _ = try fixture.getSut(testName: self.name)
         let parentTransaction = try XCTUnwrap(SentrySDK.startTransaction(name: "Transaction", operation: "Test", bindToScope: true) as? SentryTracer)
 
         // -- Act --
-        let data = try Data(contentsOfWithSentryTracing: fixture.ignoredFileUrl)
+        let data = try Data(contentsOfWithSentryTracing: fixture.ignoredFileUrlToRead)
 
         // -- Assert --
         XCTAssertEqual(data, fixture.data)
         XCTAssertEqual(parentTransaction.children.count, 0)
     }
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testInitContentsOfWithSentryTracing_SDKIsNotStarted_shouldReadData() throws {
         // -- Arrange --
         let _ = try fixture.getSut(testName: self.name, isSDKEnabled: false)
@@ -236,6 +273,7 @@ class DataSentryTracingIntegrationTests: XCTestCase {
         XCTAssertEqual(data, fixture.data)
     }
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testInitContentsOfWithSentryTracing_SDKIsClosed_shouldReadData() throws {
         // -- Arrange --
         let _ = try fixture.getSut(testName: self.name)
@@ -251,10 +289,15 @@ class DataSentryTracingIntegrationTests: XCTestCase {
 
     // MARK: - Data.writeWithSentryTracing(to:)
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testWriteWithSentryTracing_shouldTraceManuallyWithErrorRethrow() throws {
         // -- Arrange --
         let sut: Data = try fixture.getSut(testName: self.name)
         let parentTransaction = try XCTUnwrap(SentrySDK.startTransaction(name: "Transaction", operation: "Test", bindToScope: true) as? SentryTracer)
+
+        // Check pre-condition
+        let isFileCreated = FileManager.default.fileExists(atPath: fixture.fileUrlToWrite.path)
+        XCTAssertFalse(isFileCreated)
 
         // -- Act --
         let refTimestamp = fixture.mockDateProvider.date()
@@ -282,9 +325,14 @@ class DataSentryTracingIntegrationTests: XCTestCase {
         XCTAssertGreaterThan(endTimestamp.timeIntervalSince1970, startTimestamp.timeIntervalSince1970)
     }
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testWriteWithSentryTracingWithOptions_shouldPassOptionsToSystemImplementation() throws {
         // -- Arrange --
         let sut: Data = try fixture.getSut(testName: self.name)
+
+        // Check pre-condition
+        let isFileCreated = FileManager.default.fileExists(atPath: fixture.fileUrlToWrite.path)
+        XCTAssertFalse(isFileCreated)
 
         // To verify that the option is passed, we are using the `withoutOverwriting` option.
         // We expect the default write implementation to not fail when writing the same file twice without the option set.
@@ -309,6 +357,7 @@ class DataSentryTracingIntegrationTests: XCTestCase {
         XCTAssertEqual(writtenData, sut)
     }
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testWriteWithSentryTracing_throwsError_shouldTraceManuallyWithErrorRethrow() throws {
         // -- Arrange --
         let sut: Data = try fixture.getSut(testName: self.name)
@@ -335,6 +384,7 @@ class DataSentryTracingIntegrationTests: XCTestCase {
         XCTAssertGreaterThan(endTimestamp.timeIntervalSince1970, startTimestamp.timeIntervalSince1970)
     }
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testWriteWithSentryTracing_nonFileUrl_shouldNotTraceManually() throws {
         // -- Arrange --
         let sut: Data = try fixture.getSut(testName: self.name)
@@ -347,6 +397,7 @@ class DataSentryTracingIntegrationTests: XCTestCase {
         XCTAssertEqual(parentTransaction.children.count, 0)
     }
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testWriteWithSentryTracing_trackerIsNotEnabled_shouldNotTraceManually() throws {
         // -- Arrange --
         let sut: Data = try fixture.getSut(testName: self.name, isEnabled: false)
@@ -359,25 +410,35 @@ class DataSentryTracingIntegrationTests: XCTestCase {
         XCTAssertEqual(parentTransaction.children.count, 0)
     }
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testWriteWithSentryTracing_fileIsIgnored_shouldNotTraceManually() throws {
         // -- Arrange --
         let sut: Data = try fixture.getSut(testName: self.name)
         let parentTransaction = try XCTUnwrap(SentrySDK.startTransaction(name: "Transaction", operation: "Test", bindToScope: true) as? SentryTracer)
 
+        // Check pre-condition
+        let isFileCreated = FileManager.default.fileExists(atPath: fixture.ignoredFileUrlToWrite.path)
+        XCTAssertFalse(isFileCreated)
+
         // -- Act --
-        try sut.writeWithSentryTracing(to: fixture.ignoredFileUrl)
+        try sut.writeWithSentryTracing(to: fixture.ignoredFileUrlToWrite)
 
         // -- Assert --
-        let writtenData = try Data(contentsOf: fixture.ignoredFileUrl)
+        let writtenData = try Data(contentsOf: fixture.ignoredFileUrlToWrite)
         XCTAssertEqual(writtenData, fixture.data)
 
         XCTAssertEqual(parentTransaction.children.count, 0)
     }
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testWriteWithSentryTracing_SDKIsNotStarted_shouldWriteFile() throws {
         // -- Arrange --
         let sut: Data = try fixture.getSut(testName: self.name, isSDKEnabled: false)
         SentrySDK.close()
+
+        // Check pre-condition
+        let isFileCreated = FileManager.default.fileExists(atPath: fixture.fileUrlToWrite.path)
+        XCTAssertFalse(isFileCreated)
 
         // -- Act --
         try sut.writeWithSentryTracing(to: fixture.fileUrlToWrite)
@@ -388,10 +449,15 @@ class DataSentryTracingIntegrationTests: XCTestCase {
         XCTAssertEqual(writtenData, fixture.data)
     }
 
+    @available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
     func testWriteWithSentryTracing_SDKIsClosed_shouldWriteFile() throws {
         // -- Arrange --
         let sut: Data = try fixture.getSut(testName: self.name)
         SentrySDK.close()
+
+        // Check pre-condition
+        let isFileCreated = FileManager.default.fileExists(atPath: fixture.fileUrlToWrite.path)
+        XCTAssertFalse(isFileCreated)
 
         // -- Act --
         try sut.writeWithSentryTracing(to: fixture.fileUrlToWrite)

@@ -1,13 +1,18 @@
 import Foundation
-@testable import Sentry
-import SentryTestUtils
+@_spi(Private) @testable import Sentry
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 #if os(iOS) || os(tvOS)
 
+@available(*, deprecated, message: "This is deprecated because SentryOptions integrations is deprecated")
 class SentrySessionReplayIntegrationTests: XCTestCase {
     
     private class TestSentryUIApplication: SentryUIApplication {
+        init() {
+            super.init(notificationCenterWrapper: TestNSNotificationCenterWrapper(), dispatchQueueWrapper: TestSentryDispatchQueueWrapper())
+        }
+
         var windowsMock: [UIWindow]? = [UIWindow()]
         var screenName: String?
         
@@ -41,10 +46,12 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
     }
     
     private var uiApplication = TestSentryUIApplication()
-    
+    private var globalEventProcessor = SentryGlobalEventProcessor()
+
     override func setUp() {
         SentryDependencyContainer.sharedInstance().application = uiApplication
         SentryDependencyContainer.sharedInstance().reachability = TestSentryReachability()
+        SentryDependencyContainer.sharedInstance().globalEventProcessor = globalEventProcessor
     }
     
     override func tearDown() {
@@ -53,7 +60,7 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
     }
     
     private func getSut() throws -> SentrySessionReplayIntegration {
-        return try XCTUnwrap(SentrySDK.currentHub().installedIntegrations().first as? SentrySessionReplayIntegration)
+        return try XCTUnwrap(SentrySDKInternal.currentHub().installedIntegrations().first as? SentrySessionReplayIntegration)
     }
     
     private func startSDK(sessionSampleRate: Float, errorSampleRate: Float, enableSwizzling: Bool = true, noIntegrations: Bool = false, configure: ((Options) -> Void)? = nil) {
@@ -65,26 +72,26 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
             $0.cacheDirectoryPath = FileManager.default.temporaryDirectory.path
             configure?($0)
         }
-        SentrySDK.currentHub().startSession()
+        SentrySDKInternal.currentHub().startSession()
     }
     
     func testNoInstall() {
         startSDK(sessionSampleRate: 0, errorSampleRate: 0)
         
-        XCTAssertEqual(SentrySDK.currentHub().trimmedInstalledIntegrationNames().count, 0)
-        XCTAssertEqual(SentryGlobalEventProcessor.shared().processors.count, 0)
+        XCTAssertEqual(SentrySDKInternal.currentHub().trimmedInstalledIntegrationNames().count, 0)
+        XCTAssertEqual(globalEventProcessor.processors.count, 0)
     }
     
     func testInstallFullSessionReplay() {
         startSDK(sessionSampleRate: 1, errorSampleRate: 0)
         
-        XCTAssertEqual(SentrySDK.currentHub().trimmedInstalledIntegrationNames().count, 1)
-        XCTAssertEqual(SentryGlobalEventProcessor.shared().processors.count, 1)
+        XCTAssertEqual(SentrySDKInternal.currentHub().trimmedInstalledIntegrationNames().count, 1)
+        XCTAssertEqual(globalEventProcessor.processors.count, 1)
     }
     
     func testInstallNoSwizzlingNoTouchTracker() {
         startSDK(sessionSampleRate: 1, errorSampleRate: 0, enableSwizzling: false)
-        guard let integration = SentrySDK.currentHub().installedIntegrations().first as? SentrySessionReplayIntegration
+        guard let integration = SentrySDKInternal.currentHub().installedIntegrations().first as? SentrySessionReplayIntegration
         else {
             XCTFail("Could not find session replay integration")
             return
@@ -101,8 +108,8 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
     func testInstallFullSessionReplayButDontRunBecauseOfRandom() throws {
         SentryDependencyContainer.sharedInstance().random = TestRandom(value: 0.3)
         startSDK(sessionSampleRate: 0.2, errorSampleRate: 0)
-        XCTAssertEqual(SentrySDK.currentHub().trimmedInstalledIntegrationNames().count, 1)
-        XCTAssertEqual(SentryGlobalEventProcessor.shared().processors.count, 1)
+        XCTAssertEqual(SentrySDKInternal.currentHub().trimmedInstalledIntegrationNames().count, 1)
+        XCTAssertEqual(globalEventProcessor.processors.count, 1)
         let sut = try getSut()
         XCTAssertNil(sut.sessionReplay)
     }
@@ -112,8 +119,8 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         
         startSDK(sessionSampleRate: 0.3, errorSampleRate: 0)
         
-        XCTAssertEqual(SentrySDK.currentHub().trimmedInstalledIntegrationNames().count, 1)
-        XCTAssertEqual(SentryGlobalEventProcessor.shared().processors.count, 1)
+        XCTAssertEqual(SentrySDKInternal.currentHub().trimmedInstalledIntegrationNames().count, 1)
+        XCTAssertEqual(globalEventProcessor.processors.count, 1)
         let sut = try getSut()
         XCTAssertNotNil(sut.sessionReplay)
     }
@@ -121,8 +128,8 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
     func testInstallErrorReplay() {
         startSDK(sessionSampleRate: 0, errorSampleRate: 0.1)
         
-        XCTAssertEqual(SentrySDK.currentHub().trimmedInstalledIntegrationNames().count, 1)
-        XCTAssertEqual(SentryGlobalEventProcessor.shared().processors.count, 1)
+        XCTAssertEqual(SentrySDKInternal.currentHub().trimmedInstalledIntegrationNames().count, 1)
+        XCTAssertEqual(globalEventProcessor.processors.count, 1)
     }
     
     func testWaitForNotificationWithNoWindow() throws {
@@ -153,7 +160,7 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         
         let sut = try getSut()
         XCTAssertNotNil(sut.sessionReplay)
-        SentrySDK.currentHub().endSession()
+        SentrySDKInternal.currentHub().endSession()
         XCTAssertNil(sut.sessionReplay)
     }
     
@@ -171,9 +178,9 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         
         let sut = try getSut()
         XCTAssertNotNil(sut.sessionReplay)
-        SentrySDK.currentHub().endSession()
+        SentrySDKInternal.currentHub().endSession()
         XCTAssertNil(sut.sessionReplay)
-        SentrySDK.currentHub().startSession()
+        SentrySDKInternal.currentHub().startSession()
         XCTAssertNotNil(sut.sessionReplay)
     }
     
@@ -181,17 +188,17 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         startSDK(sessionSampleRate: 1, errorSampleRate: 0)
         
         let sut = try getSut()
-        SentrySDK.currentHub().startSession()
+        SentrySDKInternal.currentHub().startSession()
         XCTAssertNotNil(sut.sessionReplay)
         let oldSessionReplay = sut.sessionReplay
         XCTAssertTrue(oldSessionReplay?.isRunning ?? false)
-        SentrySDK.currentHub().startSession()
+        SentrySDKInternal.currentHub().startSession()
         XCTAssertFalse(oldSessionReplay?.isRunning ?? true)
     }
     
     func testScreenNameFromSentryUIApplication() throws {
         startSDK(sessionSampleRate: 1, errorSampleRate: 1)
-        let sut: SentrySessionReplayDelegate = try getSut()
+        let sut: SentrySessionReplayDelegate = try getSut() as! SentrySessionReplayDelegate
         uiApplication.screenName = "Test Screen"
         XCTAssertEqual(sut.currentScreenNameForSessionReplay(), "Test Screen")
     }
@@ -199,11 +206,11 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
     func testScreenNameFromSentryScope() throws {
         startSDK(sessionSampleRate: 1, errorSampleRate: 1)
         
-        SentrySDK.currentHub().configureScope { scope in
+        SentrySDKInternal.currentHub().configureScope { scope in
             scope.currentScreen = "Scope Screen"
         }
         
-        let sut: SentrySessionReplayDelegate = try getSut()
+        let sut: SentrySessionReplayDelegate = try getSut() as! SentrySessionReplayDelegate
         uiApplication.screenName = "Test Screen"
         XCTAssertEqual(sut.currentScreenNameForSessionReplay(), "Scope Screen")
     }
@@ -213,10 +220,10 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         
         startSDK(sessionSampleRate: 1, errorSampleRate: 1)
         
-        let client = SentryClient(options: try XCTUnwrap(SentrySDK.options))
+        let client = SentryClient(options: try XCTUnwrap(SentrySDKInternal.options))
         let scope = Scope()
         let hub = TestHub(client: client, andScope: scope)
-        SentrySDK.setCurrentHub(hub)
+        SentrySDKInternal.setCurrentHub(hub)
         let expectation = expectation(description: "Replay to be capture")
         hub.onReplayCapture = {
             expectation.fulfill()
@@ -224,8 +231,8 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         
         let crash = Event(error: NSError(domain: "Error", code: 1))
         crash.context = [:]
-        crash.isCrashEvent = true
-        SentryGlobalEventProcessor.shared().reportAll(crash)
+        crash.isFatalEvent = true
+        globalEventProcessor.reportAll(crash)
         
         wait(for: [expectation], timeout: 1)
         XCTAssertEqual(hub.capturedReplayRecordingVideo.count, 1)
@@ -241,10 +248,10 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         
         startSDK(sessionSampleRate: 1, errorSampleRate: 1)
         
-        let client = SentryClient(options: try XCTUnwrap(SentrySDK.options))
+        let client = SentryClient(options: try XCTUnwrap(SentrySDKInternal.options))
         let scope = Scope()
         let hub = TestHub(client: client, andScope: scope)
-        SentrySDK.setCurrentHub(hub)
+        SentrySDKInternal.setCurrentHub(hub)
         let expectation = expectation(description: "Replay to be capture")
         hub.onReplayCapture = {
             expectation.fulfill()
@@ -252,8 +259,8 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         
         let crash = Event(error: NSError(domain: "Error", code: 1))
         crash.context = [:]
-        crash.isCrashEvent = true
-        SentryGlobalEventProcessor.shared().reportAll(crash)
+        crash.isFatalEvent = true
+        globalEventProcessor.reportAll(crash)
         
         wait(for: [expectation], timeout: 1)
         XCTAssertEqual(hub.capturedReplayRecordingVideo.count, 1)
@@ -267,10 +274,10 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
     func testBufferReplayIgnoredBecauseSampleRateForCrash() throws {
         startSDK(sessionSampleRate: 1, errorSampleRate: 1)
         
-        let client = SentryClient(options: try XCTUnwrap(SentrySDK.options))
+        let client = SentryClient(options: try XCTUnwrap(SentrySDKInternal.options))
         let scope = Scope()
         let hub = TestHub(client: client, andScope: scope)
-        SentrySDK.setCurrentHub(hub)
+        SentrySDKInternal.setCurrentHub(hub)
         let expectation = expectation(description: "Replay to be capture")
         expectation.isInverted = true
         hub.onReplayCapture = {
@@ -280,8 +287,8 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         try createLastSessionReplay(writeSessionInfo: false, errorSampleRate: 0)
         let crash = Event(error: NSError(domain: "Error", code: 1))
         crash.context = [:]
-        crash.isCrashEvent = true
-        SentryGlobalEventProcessor.shared().reportAll(crash)
+        crash.isFatalEvent = true
+        globalEventProcessor.reportAll(crash)
         
         wait(for: [expectation], timeout: 1)
         XCTAssertEqual(hub.capturedReplayRecordingVideo.count, 0)
@@ -305,7 +312,7 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         }
         
         let sut = try getSut()
-        let redactBuilder = sut.viewPhotographer.getRedactBuild()
+        let redactBuilder = sut.viewPhotographer.getRedactBuilder()
         XCTAssertTrue(redactBuilder.containsRedactClass(AnotherLabel.self))
     }
     
@@ -318,7 +325,7 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         }
     
         let sut = try getSut()
-        let redactBuilder = sut.viewPhotographer.getRedactBuild()
+        let redactBuilder = sut.viewPhotographer.getRedactBuilder()
         XCTAssertTrue(redactBuilder.containsIgnoreClass(AnotherLabel.self))
     }
     
@@ -336,7 +343,7 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
     
     func testStartWithNoSessionReplay() throws {
         startSDK(sessionSampleRate: 0, errorSampleRate: 0, noIntegrations: true)
-        var sut = SentrySDK.currentHub().installedIntegrations().first as? SentrySessionReplayIntegration
+        var sut = SentrySDKInternal.currentHub().installedIntegrations().first as? SentrySessionReplayIntegration
         XCTAssertNil(sut)
         SentrySDK.replay.start()
         sut = try getSut()
@@ -376,7 +383,7 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         let videoInfo = SentryVideoInfo(path: videoUrl, height: 1_024, width: 480, duration: 5, frameCount: 5, frameRate: 1, start: Date(), end: Date(), fileSize: 10, screens: [])
         let replayEvent = SentryReplayEvent(eventId: SentryId(), replayStartTimestamp: Date(), replayType: .session, segmentId: 0)
         
-        (sut as SentrySessionReplayDelegate).sessionReplayNewSegment(replayEvent: replayEvent,
+        (sut as! SentrySessionReplayDelegate).sessionReplayNewSegment(replayEvent: replayEvent,
                                                                      replayRecording: SentryReplayRecording(segmentId: 0, video: videoInfo, extraEvents: []),
                                                                      videoUrl: videoUrl)
         
@@ -399,7 +406,7 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         let videoInfo = SentryVideoInfo(path: videoUrl, height: 1_024, width: 480, duration: 5, frameCount: 5, frameRate: 1, start: Date(), end: Date(), fileSize: 10, screens: [])
         let replayEvent = SentryReplayEvent(eventId: SentryId(), replayStartTimestamp: Date(), replayType: .session, segmentId: 0)
         
-        (sut as SentrySessionReplayDelegate).sessionReplayNewSegment(replayEvent: replayEvent,
+        (sut as! SentrySessionReplayDelegate).sessionReplayNewSegment(replayEvent: replayEvent,
                                                                      replayRecording: SentryReplayRecording(segmentId: 0, video: videoInfo, extraEvents: []),
                                                                      videoUrl: videoUrl)
         
@@ -422,7 +429,7 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         let videoInfo = SentryVideoInfo(path: videoUrl, height: 1_024, width: 480, duration: 5, frameCount: 5, frameRate: 1, start: Date(), end: Date(), fileSize: 10, screens: [])
         let replayEvent = SentryReplayEvent(eventId: SentryId(), replayStartTimestamp: Date(), replayType: .session, segmentId: 0)
         
-        (sut as SentrySessionReplayDelegate).sessionReplayNewSegment(replayEvent: replayEvent,
+        (sut as! SentrySessionReplayDelegate).sessionReplayNewSegment(replayEvent: replayEvent,
                                                                      replayRecording: SentryReplayRecording(segmentId: 0, video: videoInfo, extraEvents: []),
                                                                      videoUrl: videoUrl)
         
@@ -451,7 +458,7 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         let videoInfo = SentryVideoInfo(path: videoUrl, height: 1_024, width: 480, duration: 5, frameCount: 5, frameRate: 1, start: Date(), end: Date(), fileSize: 10, screens: [])
         let replayEvent = SentryReplayEvent(eventId: SentryId(), replayStartTimestamp: Date(), replayType: .session, segmentId: 0)
         
-        (sut as SentrySessionReplayDelegate).sessionReplayNewSegment(replayEvent: replayEvent,
+        (sut as! SentrySessionReplayDelegate).sessionReplayNewSegment(replayEvent: replayEvent,
                                                                      replayRecording: SentryReplayRecording(segmentId: 0, video: videoInfo, extraEvents: []),
                                                                      videoUrl: videoUrl)
         XCTAssertNil(sut.sessionReplay)
@@ -459,7 +466,7 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         sut.start()
         XCTAssertNil(sut.sessionReplay)
         
-        (sut as SentrySessionListener).sentrySessionStarted(SentrySession(releaseName: "", distinctId: ""))
+        (sut as! SentrySessionListener).sentrySessionStarted(SentrySession(releaseName: "", distinctId: ""))
         
         sut.start()
         XCTAssertTrue(sut.sessionReplay?.isRunning ?? false)
@@ -576,7 +583,118 @@ class SentrySessionReplayIntegrationTests: XCTestCase {
         
         XCTAssertEqual(window.subviews.count, 0, "Mask preview should not appear in production")
     }
-    
+
+    func testMoveCurrentReplay_whenLastFileExistsWithoutCurrent_shouldBeRemoved() throws {
+        // -- Arrange --
+        startSDK(sessionSampleRate: 0, errorSampleRate: 1)
+        let sut = try getSut()
+
+        let replayFolder = sut.replayDirectory()
+        try FileManager.default.createDirectory(atPath: replayFolder.path, withIntermediateDirectories: true)
+
+        let currentReplayPath = replayFolder.appendingPathComponent("replay.current")
+        // Cleanup stale files from previous tests
+        if FileManager.default.fileExists(atPath: currentReplayPath.path) {
+            try FileManager.default.removeItem(atPath: currentReplayPath.path)
+        }
+
+        let lastReplayPath = replayFolder.appendingPathComponent("replay.last")
+        let lastData = Data("last".utf8)
+        try lastData.write(to: lastReplayPath)
+
+        // Validate pre-condition
+        XCTAssertFalse(FileManager.default.fileExists(atPath: currentReplayPath.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: lastReplayPath.path))
+
+        // -- Act --
+        sut.moveCurrentReplay()
+
+        // -- Assert --
+        XCTAssertFalse(FileManager.default.fileExists(atPath: currentReplayPath.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lastReplayPath.path))
+    }
+
+    func testMoveCurrentReplay_whenLastFileExistsWithCurrent_shouldBeReplaced() throws {
+        // -- Arrange --
+        startSDK(sessionSampleRate: 0, errorSampleRate: 1)
+        let sut = try getSut()
+
+        let replayFolder = sut.replayDirectory()
+        try FileManager.default.createDirectory(atPath: replayFolder.path, withIntermediateDirectories: true)
+
+        let currentReplayPath = replayFolder.appendingPathComponent("replay.current")
+        let currentData = Data("current".utf8)
+        try currentData.write(to: currentReplayPath)
+
+        let lastReplayPath = replayFolder.appendingPathComponent("replay.last")
+        let lastData = Data("last".utf8)
+        try lastData.write(to: lastReplayPath)
+
+        // Validate pre-condition
+        XCTAssertTrue(FileManager.default.fileExists(atPath: currentReplayPath.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: lastReplayPath.path))
+
+        // -- Act --
+        sut.moveCurrentReplay()
+
+        // -- Assert --
+        XCTAssertFalse(FileManager.default.fileExists(atPath: currentReplayPath.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: lastReplayPath.path))
+
+        let writtenLastData = try Data(contentsOf: lastReplayPath)
+        XCTAssertEqual(writtenLastData, currentData)
+    }
+
+    func testQueuePriorities_processingQueueShouldHaveLowerPriorityThanWorkerQueue() throws {
+        // -- Arrange --
+        startSDK(sessionSampleRate: 1, errorSampleRate: 1)
+        let sut = try getSut()
+        let dynamicSut = Dynamic(sut)
+
+        // -- Act --
+        let processingQueue = try XCTUnwrap(dynamicSut.replayProcessingQueue.asObject as? SentryDispatchQueueWrapper)
+        let assetWorkerQueue = try XCTUnwrap(dynamicSut.replayAssetWorkerQueue.asObject as? SentryDispatchQueueWrapper)
+
+        // -- Assert --
+        XCTAssertEqual(assetWorkerQueue.queue.label, "io.sentry.session-replay.asset-worker")
+        XCTAssertEqual(assetWorkerQueue.queue.qos.qosClass, .utility)
+
+        XCTAssertEqual(processingQueue.queue.label, "io.sentry.session-replay.processing")
+        XCTAssertEqual(processingQueue.queue.qos.qosClass, .utility)
+
+        // The actual priorities are not relevant, we just need to check that the processing queue has a lower priority
+        // than the asset worker queue and that both are lower than the default priority.
+        XCTAssertLessThan(processingQueue.queue.qos.relativePriority, 0)
+        XCTAssertLessThan(processingQueue.queue.qos.relativePriority, assetWorkerQueue.queue.qos.relativePriority)
+    }
+
+    /// This test ensures to not have memory leaks in the SentrySessionReplayIntegration, such as a strong reference cycle.
+    /// For example, removing the weak reference for accessing self when adding the globalEventProcessor would leak memory and
+    /// this test would start to fail when doing so.
+    func testSessionReplayIntegration_DoesNotLeakMemory() throws {
+
+        // -- Arrange --
+        weak var weakSut: SentrySessionReplayIntegration?
+
+        // Put into extra func so ARC deallocates the sut
+        func allocateSutAndDealloc() throws {
+            let options = Options()
+            options.sessionReplay = SentryReplayOptions(sessionSampleRate: 1.0, onErrorSampleRate: 1.0)
+
+            let instance = SentrySessionReplayIntegration()
+            instance.install(with: options)
+            instance.uninstall()
+
+            weakSut = instance
+        }
+
+        // --  Act --
+        try allocateSutAndDealloc()
+
+        // -- Assert --
+        XCTAssertNil(weakSut, "SentrySessionReplayIntegration should be deallocated")
+    }
+
     private func createLastSessionReplay(writeSessionInfo: Bool = true, errorSampleRate: Double = 1) throws {
         let replayFolder = replayFolder()
         let jsonPath = replayFolder + "/replay.current"

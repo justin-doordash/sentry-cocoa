@@ -1,5 +1,5 @@
-@testable import Sentry
-import SentryTestUtils
+@_spi(Private) @testable import Sentry
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 // swiftlint:disable file_length
@@ -20,6 +20,7 @@ class SentryHubTests: XCTestCase {
         let sentryCrashWrapper = TestSentryCrashWrapper.sharedInstance()
         let fileManager: SentryFileManager
         let crashedSession: SentrySession
+        let abnormalSession: SentrySession
         let transactionName = "Some Transaction"
         let transactionOperation = "Some Operation"
         let traceOrigin = "auto"
@@ -44,6 +45,10 @@ class SentryHubTests: XCTestCase {
             crashedSession = SentrySession(releaseName: "1.0.0", distinctId: "")
             crashedSession.endCrashed(withTimestamp: currentDateProvider.date())
             crashedSession.environment = options.environment
+            
+            abnormalSession = SentrySession(releaseName: "1.0.0", distinctId: "")
+            abnormalSession.endAbnormal(withTimestamp: currentDateProvider.date())
+            abnormalSession.environment = options.environment
         }
         
         func getSut(withMaxBreadcrumbs maxBreadcrumbs: UInt = 100) -> SentryHub {
@@ -66,6 +71,7 @@ class SentryHubTests: XCTestCase {
         fixture = Fixture()
         fixture.fileManager.deleteCurrentSession()
         fixture.fileManager.deleteCrashedSession()
+        fixture.fileManager.deleteAbnormalSession()
         fixture.fileManager.deleteAppState()
         fixture.fileManager.deleteTimestampLastInForeground()
         fixture.fileManager.deleteAllEnvelopes()
@@ -75,6 +81,7 @@ class SentryHubTests: XCTestCase {
         super.tearDown()
         fixture.fileManager.deleteCurrentSession()
         fixture.fileManager.deleteCrashedSession()
+        fixture.fileManager.deleteAbnormalSession()
         fixture.fileManager.deleteAppState()
         fixture.fileManager.deleteTimestampLastInForeground()
         fixture.fileManager.deleteAllEnvelopes()
@@ -142,9 +149,6 @@ class SentryHubTests: XCTestCase {
     }
     
     func testBreadcrumbCapLimit() {
-        // To avoid spamming the test logs
-        SentryLog.configure(true, diagnosticLevel: .error)
-        
         let hub = fixture.getSut()
         
         for _ in 0...100 {
@@ -152,8 +156,6 @@ class SentryHubTests: XCTestCase {
         }
         
         assert(withScopeBreadcrumbsCount: 100, with: hub)
-        
-        SentryLog.setTestDefaultLogLevel()
     }
     
     func testBreadcrumbOverDefaultLimit() {
@@ -185,7 +187,55 @@ class SentryHubTests: XCTestCase {
         XCTAssertNotNil(hub.scope.contextDictionary["device"])
         XCTAssertNotNil(hub.scope.contextDictionary["app"])
     }
-    
+
+    func testScopeEnriched_WithNoRuntime() throws {
+        // Arrange
+        let processInfoWrapper = TestSentryNSProcessInfoWrapper()
+        SentryDependencyContainer.sharedInstance().processInfoWrapper = processInfoWrapper
+
+        processInfoWrapper.overrides.isiOSAppOnMac = false
+        processInfoWrapper.overrides.isMacCatalystApp = false
+
+        // Act
+        let hub = SentryHub(client: nil, andScope: Scope())
+
+        // Assert
+        XCTAssertNil(hub.scope.contextDictionary["runtime"])
+    }
+
+    func testScopeEnriched_WithRuntime_isiOSAppOnMac() throws {
+        // Arrange
+        let processInfoWrapper = TestSentryNSProcessInfoWrapper()
+        processInfoWrapper.overrides.isiOSAppOnMac = true
+        processInfoWrapper.overrides.isMacCatalystApp = false
+        SentryDependencyContainer.sharedInstance().processInfoWrapper = processInfoWrapper
+        
+        // Act
+        let hub = SentryHub(client: nil, andScope: Scope())
+        
+        // Assert
+        let runtimeContext = try XCTUnwrap (hub.scope.contextDictionary["runtime"] as? [String: String])
+        
+        XCTAssertEqual(runtimeContext["name"], "iOS App on Mac")
+        XCTAssertEqual(runtimeContext["raw_description"], "ios-app-on-mac")
+    }
+
+    func testScopeEnriched_WithRuntime_isMacCatalystApp() throws {
+        // Arrange
+        let processInfoWrapper = TestSentryNSProcessInfoWrapper()
+        processInfoWrapper.overrides.isiOSAppOnMac = false
+        processInfoWrapper.overrides.isMacCatalystApp = true
+        SentryDependencyContainer.sharedInstance().processInfoWrapper = processInfoWrapper
+
+        // Act
+        let hub = SentryHub(client: nil, andScope: Scope())
+
+        // Assert
+        let runtimeContext = try XCTUnwrap (hub.scope.contextDictionary["runtime"] as? [String: String])
+        XCTAssertEqual(runtimeContext["name"], "Mac Catalyst App")
+        XCTAssertEqual(runtimeContext["raw_description"], "raw_description")
+    }
+
     func testScopeNotEnriched_WhenScopeIsNil() {
         _ = fixture.getSut()
      
@@ -826,7 +876,7 @@ class SentryHubTests: XCTestCase {
         XCTAssertEqual(0, fixture.client.captureExceptionWithScopeInvocations.count)
     }
     
-    func testCaptureCrashEvent_CrashedSessionExists() {
+    func testCaptureFatalEvent_CrashedSessionExists() {
         sut = fixture.getSut(fixture.options, fixture.scope)
         givenCrashedSession()
         
@@ -834,15 +884,15 @@ class SentryHubTests: XCTestCase {
         
         let environment = "test"
         sut.configureScope { $0.setEnvironment(environment) }
-        sut.captureCrash(fixture.event)
+        sut.captureFatalEvent(fixture.event)
         assertEventSentWithSession(scopeEnvironment: environment)
         
         // Make sure further crash events are sent
-        sut.captureCrash(fixture.event)
-        assertCrashEventSent()
+        sut.captureFatalEvent(fixture.event)
+        assertFatalEventSent()
     }
     
-    func testCaptureCrashEvent_ManualSessionTracking_CrashedSessionExists() {
+    func testCaptureFatalEvent_ManualSessionTracking_CrashedSessionExists() {
         givenAutoSessionTrackingDisabled()
         
         givenCrashedSession()
@@ -851,51 +901,51 @@ class SentryHubTests: XCTestCase {
         
         let environment = "test"
         sut.configureScope { $0.setEnvironment(environment) }
-        sut.captureCrash(fixture.event)
+        sut.captureFatalEvent(fixture.event)
         
         assertEventSentWithSession(scopeEnvironment: environment)
         
         // Make sure further crash events are sent
-        sut.captureCrash(fixture.event)
-        assertCrashEventSent()
+        sut.captureFatalEvent(fixture.event)
+        assertFatalEventSent()
     }
     
-    func testCaptureCrashEvent_CrashedSessionDoesNotExist() {
+    func testCaptureFatalEvent_CrashedSessionDoesNotExist() {
         sut.startSession() // there is already an existing session
-        sut.captureCrash(fixture.event)
+        sut.captureFatalEvent(fixture.event)
         
         assertNoCrashedSessionSent()
-        assertCrashEventSent()
+        assertFatalEventSent()
     }
     
     /**
      * When autoSessionTracking is just enabled and there is a previous crash on the disk there is no session on the disk.
      */
-    func testCaptureCrashEvent_CrashExistsButNoSessionExists() {
-        sut.captureCrash(fixture.event)
+    func testCaptureFatalEvent_CrashExistsButNoSessionExists() {
+        sut.captureFatalEvent(fixture.event)
         
-        assertCrashEventSent()
+        assertFatalEventSent()
     }
     
-    func testCaptureCrashEvent_WithoutExistingSessionAndAutoSessionTrackingEnabled() {
+    func testCaptureFatalEvent_WithoutExistingSessionAndAutoSessionTrackingEnabled() {
         givenAutoSessionTrackingDisabled()
         
-        sut.captureCrash(fixture.event)
+        sut.captureFatalEvent(fixture.event)
         
-        assertCrashEventSent()
+        assertFatalEventSent()
     }
     
-    func testCaptureCrashEvent_ClientIsNil() {
+    func testCaptureFatalEvent_ClientIsNil() {
         sut = fixture.getSut()
         sut.bindClient(nil)
         
         givenCrashedSession()
-        sut.captureCrash(fixture.event)
+        sut.captureFatalEvent(fixture.event)
         
         assertNoEventsSent()
     }
     
-    func testCaptureCrashEvent_ClientHasNoReleaseName() {
+    func testCaptureFatalEvent_ClientHasNoReleaseName() {
         sut = fixture.getSut()
         let options = fixture.options
         options.releaseName = nil
@@ -903,10 +953,108 @@ class SentryHubTests: XCTestCase {
         sut.bindClient(client)
         
         givenCrashedSession()
-        sut.captureCrash(fixture.event)
+        sut.captureFatalEvent(fixture.event)
         
         assertNoEventsSent()
     }
+    
+#if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
+    func testCaptureFatalAppHangEvent_AbnormalSessionExists() {
+        // Arrange
+        sut = fixture.getSut(fixture.options, fixture.scope)
+        givenAbnormalSession()
+        
+        assertNoAbnormalSessionSent()
+        
+        let environment = "test"
+        sut.configureScope { $0.setEnvironment(environment) }
+        
+        // Act
+        sut.captureFatalAppHang(fixture.event)
+        
+        // Assert
+        assertEventSentWithSession(scopeEnvironment: environment, sessionStatus: .abnormal, abnormalMechanism: "anr_foreground")
+    }
+    
+    func testCaptureFatalAppHangEvent_ManualSessionTracking_AbnormalSessionExists() {
+        // Arrange
+        givenAutoSessionTrackingDisabled()
+        givenAbnormalSession()
+        assertNoAbnormalSessionSent()
+        
+        let environment = "test"
+        sut.configureScope { $0.setEnvironment(environment) }
+        
+        // Act
+        sut.captureFatalAppHang(fixture.event)
+        
+        // Assert
+        assertEventSentWithSession(scopeEnvironment: environment, sessionStatus: .abnormal, abnormalMechanism: "anr_foreground")
+    }
+    
+    func testCaptureFatalAppHangEvent_AbnormalSessionDoesNotExist() {
+        // Arrange
+        sut.startSession() // there is already an existing session
+        
+        // Act
+        sut.captureFatalAppHang(fixture.event)
+        
+        // Assert
+        assertNoAbnormalSessionSent()
+        assertFatalEventSent()
+    }
+    
+    /**
+     * When autoSessionTracking is just enabled and there is a previous fatal app hang on the disk there is no session on the disk.
+     */
+    func testCaptureFatalAppHangEvent_FatalAppHangExistsButNoSessionExists() {
+        // Act
+        sut.captureFatalAppHang(fixture.event)
+        
+        // Assert
+        assertFatalEventSent()
+    }
+    
+    func testCaptureFatalAppHangEvent_WithoutExistingSessionAndAutoSessionTrackingEnabled() {
+        // Arrange
+        givenAutoSessionTrackingDisabled()
+        
+        // Act
+        sut.captureFatalAppHang(fixture.event)
+        
+        // Assert
+        assertFatalEventSent()
+    }
+    
+    func testCaptureFatalAppHangEvent_ClientIsNil() {
+        // Arrange
+        sut = fixture.getSut()
+        sut.bindClient(nil)
+        
+        // Act
+        givenAbnormalSession()
+        sut.captureFatalAppHang(fixture.event)
+        
+        // Assert
+        assertNoEventsSent()
+    }
+    
+    func testCaptureFatalAppHangEvent_ClientHasNoReleaseName() {
+        // Arrange
+        sut = fixture.getSut()
+        let options = fixture.options
+        options.releaseName = nil
+        let client = SentryClient(options: options)
+        sut.bindClient(client)
+        
+        // Act
+        givenAbnormalSession()
+        sut.captureFatalAppHang(fixture.event)
+        
+        // Assert
+        assertNoEventsSent()
+    }
+#endif // os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
     
     func testCaptureEnvelope_WithEventWithError() throws {
         sut.startSession()
@@ -1049,26 +1197,34 @@ class SentryHubTests: XCTestCase {
     
 #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
     func test_reportFullyDisplayed_enableTimeToFullDisplay_YES() {
+        // -- Arrange --
         let sut = fixture.getSut(fixture.options)
         
         let testTTDTracker = TestTimeToDisplayTracker(waitForFullDisplay: true)
         
-        Dynamic(SentryUIViewControllerPerformanceTracker.shared).currentTTDTracker = testTTDTracker
-        
+        let performanceTracker = Dynamic(SentryDependencyContainer.sharedInstance().uiViewControllerPerformanceTracker)
+        performanceTracker.currentTTDTracker = testTTDTracker
+
+        // -- Act --
         sut.reportFullyDisplayed()
         
+        // -- Assert --
         XCTAssertTrue(testTTDTracker.registerFullDisplayCalled)
     }
     
     func test_reportFullyDisplayed_enableTimeToFullDisplay_NO() {
+        // -- Arrange --
         let sut = fixture.getSut(fixture.options)
         
         let testTTDTracker = TestTimeToDisplayTracker(waitForFullDisplay: false)
         
-        Dynamic(SentryUIViewControllerPerformanceTracker.shared).currentTTDTracker = testTTDTracker
+        let performanceTracker = Dynamic(SentryDependencyContainer.sharedInstance().uiViewControllerPerformanceTracker)
+        performanceTracker.currentTTDTracker = testTTDTracker
         
+        // -- Act --
         sut.reportFullyDisplayed()
         
+        // -- Assert --
         XCTAssertFalse(testTTDTracker.registerFullDisplayCalled)
     }
 #endif
@@ -1098,16 +1254,19 @@ class SentryHubTests: XCTestCase {
         sut.startSession()
         
         let queue = fixture.queue
-        let group = DispatchGroup()
+
+        let expectation = XCTestExpectation(description: "Capture should be called \(count) times")
+        expectation.expectedFulfillmentCount = count
+
         for _ in 0..<count {
-            group.enter()
+
             queue.async {
                 capture(sut)
-                group.leave()
+                expectation.fulfill()
             }
         }
-        
-        group.waitWithTimeout()
+
+        wait(for: [expectation], timeout: 5.0)
     }
     
     func testModifyIntegrationsConcurrently() {
@@ -1118,10 +1277,11 @@ class SentryHubTests: XCTestCase {
         let innerLoopAmount = 100
         
         let queue = fixture.queue
-        let group = DispatchGroup()
-        
+
+        let expectation = XCTestExpectation(description: "Installing integrations concurrently")
+        expectation.expectedFulfillmentCount = outerLoopAmount
+
         for i in 0..<outerLoopAmount {
-            group.enter()
             queue.async {
                 for j in 0..<innerLoopAmount {
                     let integrationName = "Integration\(i)\(j)"
@@ -1129,12 +1289,12 @@ class SentryHubTests: XCTestCase {
                     XCTAssertTrue(sut.hasIntegration(integrationName))
                     XCTAssertNotNil(sut.getInstalledIntegration(EmptyIntegration.self))
                 }
-                group.leave()
+                expectation.fulfill()
             }
         }
-        
-        group.waitWithTimeout()
-        
+
+        wait(for: [expectation], timeout: 5.0)
+
         XCTAssertEqual(innerLoopAmount * outerLoopAmount, sut.installedIntegrations().count)
         XCTAssertEqual(innerLoopAmount * outerLoopAmount, sut.installedIntegrationNames().count)
         
@@ -1147,10 +1307,13 @@ class SentryHubTests: XCTestCase {
         let sut = fixture.getSut()
         
         let queue = fixture.queue
-        let group = DispatchGroup()
-        
-        for i in 0..<1_000 {
-            group.enter()
+
+        let loopCount = 1_000
+        let expectation = XCTestExpectation(description: "Installing integrations concurrently")
+        expectation.expectedFulfillmentCount = loopCount
+
+        for i in 0..<loopCount {
+
             queue.async {
                 for j in 0..<10 {
                     let integrationName = "Integration\(i)\(j)"
@@ -1166,11 +1329,11 @@ class SentryHubTests: XCTestCase {
                 sut.installedIntegrationNames().forEach { XCTAssertNotNil($0) }
                 sut.removeAllIntegrations()
                 
-                group.leave()
+                expectation.fulfill()
             }
         }
         
-        group.wait()
+        wait(for: [expectation], timeout: 5.0)
     }
     
     func testGetInstalledIntegration() {
@@ -1239,6 +1402,12 @@ class SentryHubTests: XCTestCase {
         sut.startSession()
     }
     
+    private func givenAbnormalSession() {
+        fixture.fileManager.storeAbnormalSession(fixture.abnormalSession)
+        sut.closeCachedSession(withTimestamp: fixture.currentDateProvider.date())
+        sut.startSession()
+    }
+    
     private func givenAutoSessionTrackingDisabled() {
         let options = fixture.options
         options.enableAutoSessionTracking = false
@@ -1276,27 +1445,34 @@ class SentryHubTests: XCTestCase {
         }))
     }
     
+    private func assertNoAbnormalSessionSent() {
+        XCTAssertFalse(fixture.client.captureSessionInvocations.invocations.contains(where: { session in
+            return session.status == SentrySessionStatus.abnormal
+        }))
+    }
+    
     private func assertNoEventsSent() {
         XCTAssertEqual(0, fixture.client.captureEventInvocations.count)
-        XCTAssertEqual(0, fixture.client.captureCrashEventWithSessionInvocations.count)
+        XCTAssertEqual(0, fixture.client.captureFatalEventWithSessionInvocations.count)
+        XCTAssertEqual(0, fixture.client.captureFatalEventInvocations.count)
     }
     
     private func assertEventSent() {
         let arguments = fixture.client.captureEventWithScopeInvocations
         XCTAssertEqual(1, arguments.count)
         XCTAssertEqual(fixture.event, arguments.first?.event)
-        XCTAssertFalse(arguments.first?.event.isCrashEvent ?? true)
+        XCTAssertFalse(arguments.first?.event.isFatalEvent ?? true)
     }
     
-    private func assertCrashEventSent() {
-        let arguments = fixture.client.captureCrashEventInvocations
+    private func assertFatalEventSent() {
+        let arguments = fixture.client.captureFatalEventInvocations
         XCTAssertEqual(1, arguments.count)
         XCTAssertEqual(fixture.event, arguments.first?.event)
-        XCTAssertTrue(arguments.first?.event.isCrashEvent ?? false)
+        XCTAssertTrue(arguments.first?.event.isFatalEvent ?? false)
     }
     
-    private func assertEventSentWithSession(scopeEnvironment: String) {
-        let arguments = fixture.client.captureCrashEventWithSessionInvocations
+    private func assertEventSentWithSession(scopeEnvironment: String, sessionStatus: SentrySessionStatus = .crashed, abnormalMechanism: String? = nil) {
+        let arguments = fixture.client.captureFatalEventWithSessionInvocations
         XCTAssertEqual(1, arguments.count)
         
         let argument = arguments.first
@@ -1304,11 +1480,9 @@ class SentryHubTests: XCTestCase {
         
         let session = argument?.session
         XCTAssertEqual(fixture.currentDateProvider.date(), session?.timestamp)
-        XCTAssertEqual(SentrySessionStatus.crashed, session?.status)
+        XCTAssertEqual(sessionStatus, session?.status)
+        XCTAssertEqual(abnormalMechanism, session?.abnormalMechanism)
         XCTAssertEqual(fixture.options.environment, session?.environment)
-        
-        let event = argument?.scope.applyTo(event: fixture.event, maxBreadcrumbs: 10)
-        XCTAssertEqual(event?.environment, scopeEnvironment)
     }
     
     private func assertSessionWithIncrementedErrorCountedAdded() throws {
