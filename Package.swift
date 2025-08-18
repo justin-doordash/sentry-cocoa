@@ -20,17 +20,17 @@ var targets: [Target] = [
     .binaryTarget(
         name: "Sentry",
         url: "https://ddartifacts.jfrog.io/artifactory/swift-general-local/Sentry/8.53.1/Sentry.xcframework.zip",
-        checksum: "d3f18bc508777465bca0ba977bef408616eadfbe46c114ec6f0a437662373d32" //Sentry-Static
+        checksum: "8ae89ba2d771470f102f271510750c6235e1245033f9c97fae3a120373e47285" //Sentry-Static
     ),
     .binaryTarget(
         name: "Sentry-Dynamic",
         url: "https://ddartifacts.jfrog.io/artifactory/swift-general-local/Sentry/8.53.1/Sentry-Dynamic.xcframework.zip",
-        checksum: "b68ed3f33747d84472bc7e63052a2812861fd6ccbcb3e5b9ee8103638c4f8f8c" //Sentry-Dynamic
+        checksum: "eada21dd92c4a48ccbd23a4d4e02dabd0239a305533ccc9b9d04cb7449404109" //Sentry-Dynamic
     ),
     .binaryTarget(
         name: "Sentry-Dynamic-WithARM64e",
         url: "https://ddartifacts.jfrog.io/artifactory/swift-general-local/Sentry/8.53.1/Sentry-Dynamic-WithARM64e.xcframework.zip",
-        checksum: "fdebc7362b4bf6656a8f95f34f97f8430f76edb47b704007503bb5bae7dbed3e" //Sentry-Dynamic-WithARM64e
+        checksum: "72701e9d216078f952a4307ce674bcc391e72d0ac1ae185c95964d8ad0fa5fe4" //Sentry-Dynamic-WithARM64e
     ),
     .target (
         name: "SentrySwiftUI",
