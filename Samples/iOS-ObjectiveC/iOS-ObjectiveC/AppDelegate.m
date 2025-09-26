@@ -3,9 +3,10 @@
 @import Sentry;
 #import <Sentry/SentryOptions+Private.h>
 
-#import "iOS_ObjectiveC-Swift.h"
+@import SentrySampleShared;
 
 @interface AppDelegate ()
+@property (strong, nonatomic) SampleAppDebugMenu *debugMenu;
 @end
 
 @implementation AppDelegate
@@ -13,33 +14,77 @@
 - (BOOL)application:(UIApplication *)application
     didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
+    self.debugMenu = [[SampleAppDebugMenu alloc] init];
+    [self.debugMenu display];
+
     NSArray<NSString *> *args = NSProcessInfo.processInfo.arguments;
+    NSDictionary<NSString *, NSString *> *env = NSProcessInfo.processInfo.environment;
 
     [SentrySDK startWithConfigureOptions:^(SentryOptions *options) {
         options.dsn = @"https://6cc9bae94def43cab8444a99e0031c28@o447951.ingest.sentry.io/5428557";
         options.debug = YES;
-        options.tracesSampleRate = @1.0;
         options.attachScreenshot = YES;
         options.attachViewHierarchy = YES;
-        if ([args containsObject:@"--io.sentry.profiling.enable"]) {
-            options.profilesSampleRate = @1;
+
+        if (env[@"--io.sentry.tracesSamplerValue"] != nil) {
+            options.tracesSampler = ^(SentrySamplingContext *_Nonnull samplingContext) {
+                return @([env[@"--io.sentry.tracesSamplerValue"] doubleValue]);
+            };
         }
+
+        options.tracesSampleRate = @1.0;
+        if (env[@"--io.sentry.tracesSampleRate"] != nil) {
+            options.tracesSampleRate = @([env[@"--io.sentry.tracesSampleRate"] doubleValue]);
+        }
+
+        if (![args containsObject:@"--io.sentry.disable-ui-profiling"]) {
+            options.configureProfiling = ^(SentryProfileOptions *_Nonnull profiling) {
+                profiling.lifecycle = [args containsObject:@"--io.sentry.profile-lifecycle-manual"]
+                    ? SentryProfileLifecycleManual
+                    : SentryProfileLifecycleTrace;
+
+                profiling.sessionSampleRate = 1.f;
+                if (env[@"--io.sentry.profile-session-sample-rate"] != nil) {
+                    profiling.sessionSampleRate =
+                        [env[@"--io.sentry.profile-session-sample-rate"] floatValue];
+                }
+            };
+        }
+
+        if (env[@"--io.sentry.profilesSampleRate"] != nil) {
+            options.profilesSampleRate = @([env[@"--io.sentry.profilesSampleRate"] floatValue]);
+        }
+
+        if (env[@"--io.sentry.profilesSamplerValue"] != nil) {
+            options.profilesSampler
+                = ^NSNumber *_Nullable(SentrySamplingContext *_Nonnull samplingContext)
+            {
+                return @([env[@"--io.sentry.profilesSamplerValue"] floatValue]);
+            };
+        }
+
+        if (![args containsObject:@"--io.sentry.disable-app-start-profiling"]) {
+            options.enableAppLaunchProfiling = YES;
+        }
+
         SentryHttpStatusCodeRange *httpStatusCodeRange =
             [[SentryHttpStatusCodeRange alloc] initWithMin:400 max:599];
         options.failedRequestStatusCodes = @[ httpStatusCodeRange ];
 
-        options.sessionReplay.quality = SentryReplayQualityMedium;
-        options.sessionReplay.maskAllText = true;
-        options.sessionReplay.maskAllImages = true;
-        options.sessionReplay.sessionSampleRate = 0;
-        options.sessionReplay.onErrorSampleRate = 1;
+        options.sessionReplay = [[SentryReplayOptions alloc]
+            initWithSessionSampleRate:0
+                    onErrorSampleRate:1
+                          maskAllText:true
+                        maskAllImages:true
+                 enableViewRendererV2:![args containsObject:@"--disable-view-renderer-v2"]
+              enableFastViewRendering:![args containsObject:@"--disable-fast-view-rendering"]];
 
         options.experimental.enableFileManagerSwizzling
             = ![args containsObject:@"--disable-filemanager-swizzling"];
 
         options.initialScope = ^(SentryScope *scope) {
             [scope setTagValue:@"" forKey:@""];
-            [scope injectGitInformation];
+            [GitInjector objc_injectGitInformationInto:scope];
             return scope;
         };
 

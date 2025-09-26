@@ -1,11 +1,9 @@
 #import "SentrySdkInfo.h"
 #import "SentryClient+Private.h"
-#import "SentryExtraPackages.h"
 #import "SentryHub+Private.h"
 #import "SentryMeta.h"
 #import "SentryOptions.h"
 #import "SentrySDK+Private.h"
-#import "SentrySdkPackage.h"
 #import "SentrySwift.h"
 
 NS_ASSUME_NONNULL_BEGIN
@@ -17,10 +15,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (instancetype)global
 {
-    return [[SentrySdkInfo alloc] initWithOptions:[SentrySDK.currentHub getClient].options];
+    SentryClient *_Nullable client = [SentrySDK.currentHub getClient];
+    return [[SentrySdkInfo alloc] initWithOptions:client.options];
 }
 
-- (instancetype)initWithOptions:(SentryOptions *)options
+- (instancetype)initWithOptions:(SentryOptions *_Nullable)options
 {
 
     NSArray<NSString *> *features =

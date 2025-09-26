@@ -96,15 +96,15 @@ public class TestClient: SentryClient {
         return SentryId()
     }
     
-    public var captureCrashEventInvocations = Invocations<(event: Event, scope: Scope)>()
-    public override func captureCrash(_ event: Event, with scope: Scope) -> SentryId {
-        captureCrashEventInvocations.record((event, scope))
+    public var captureFatalEventInvocations = Invocations<(event: Event, scope: Scope)>()
+    public override func captureFatalEvent(_ event: Event, with scope: Scope) -> SentryId {
+        captureFatalEventInvocations.record((event, scope))
         return SentryId()
     }
     
-    public var captureCrashEventWithSessionInvocations = Invocations<(event: Event, session: SentrySession, scope: Scope)>()
-    public override func captureCrash(_ event: Event, with session: SentrySession, with scope: Scope) -> SentryId {
-        captureCrashEventWithSessionInvocations.record((event, session, scope))
+    public var captureFatalEventWithSessionInvocations = Invocations<(event: Event, session: SentrySession, scope: Scope)>()
+    public override func captureFatalEvent(_ event: Event, with session: SentrySession, with scope: Scope) -> SentryId {
+        captureFatalEventWithSessionInvocations.record((event, session, scope))
         return SentryId()
     }
     
@@ -148,62 +148,5 @@ public class TestClient: SentryClient {
     public var flushInvocations = Invocations<TimeInterval>()
     public override func flush(timeout: TimeInterval) {
         flushInvocations.record(timeout)
-    }
-}
-
-public class TestFileManager: SentryFileManager {
-    var timestampLastInForeground: Date?
-    var readTimestampLastInForegroundInvocations: Int = 0
-    var storeTimestampLastInForegroundInvocations: Int = 0
-    var deleteTimestampLastInForegroundInvocations: Int = 0
-
-    public var storeEnvelopeInvocations = Invocations<SentryEnvelope>()
-    public var storeEnvelopePath: String?
-    public var storeEnvelopePathNil: Bool = false
-    
-    public init(options: Options) throws {
-        try super.init(options: options, dispatchQueueWrapper: TestSentryDispatchQueueWrapper())
-    }
-    
-    public override func store(_ envelope: SentryEnvelope) -> String? {
-        storeEnvelopeInvocations.record(envelope)
-        if storeEnvelopePathNil {
-            return nil
-        } else {
-            return storeEnvelopePath ?? super.store(envelope)
-        }
-    }
-    
-    public var deleteOldEnvelopeItemsInvocations = Invocations<Void>()
-    public override func deleteOldEnvelopeItems() {
-        deleteOldEnvelopeItemsInvocations.record(Void())
-    }
-
-    public override func readTimestampLastInForeground() -> Date? {
-        readTimestampLastInForegroundInvocations += 1
-        return timestampLastInForeground
-    }
-
-    public override func storeTimestampLast(inForeground: Date) {
-        storeTimestampLastInForegroundInvocations += 1
-        timestampLastInForeground = inForeground
-    }
-
-    public override func deleteTimestampLastInForeground() {
-        deleteTimestampLastInForegroundInvocations += 1
-        timestampLastInForeground = nil
-    }
-    
-    var readAppStateInvocations = Invocations<Void>()
-    public override func readAppState() -> SentryAppState? {
-        readAppStateInvocations.record(Void())
-        return nil
-    }
-
-    var appState: SentryAppState?
-    public var readPreviousAppStateInvocations = Invocations<Void>()
-    public override func readPreviousAppState() -> SentryAppState? {
-        readPreviousAppStateInvocations.record(Void())
-        return appState
     }
 }

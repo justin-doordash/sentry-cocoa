@@ -3,7 +3,7 @@ import Foundation
 import UIKit
 
 @objcMembers
-class SentryMaskingPreviewView: UIView {
+@_spi(Private) public class SentryMaskingPreviewView: UIView {
     private class PreviewRenderer: SentryViewRenderer {
         func render(view: UIView) -> UIImage {
             return UIGraphicsImageRenderer(size: view.frame.size, format: .init(for: .init(displayScale: 1))).image { _ in
@@ -24,10 +24,11 @@ class SentryMaskingPreviewView: UIView {
         set { imageView.alpha = CGFloat(newValue)}
     }
     
-    init(redactOptions: SentryRedactOptions) {
+    public init(redactOptions: SentryRedactOptions) {
         self.photographer = SentryViewPhotographer(
             renderer: PreviewRenderer(),
-            redactOptions: redactOptions
+            redactOptions: redactOptions,
+            enableMaskRendererV2: false
         )
         super.init(frame: .zero)
         self.isUserInteractionEnabled = false
@@ -46,7 +47,7 @@ class SentryMaskingPreviewView: UIView {
         displayLink?.invalidate()
     }
     
-    override func didMoveToSuperview() {
+    public override func didMoveToSuperview() {
         if displayLink == nil {
             displayLink = CADisplayLink(target: self, selector: #selector(update))
             displayLink?.add(to: .main, forMode: .common)
@@ -61,9 +62,9 @@ class SentryMaskingPreviewView: UIView {
     private func update() {
         guard let superview = self.superview, idle else { return }
         idle = false
-        self.photographer.image(view: superview) { image in
+        self.photographer.image(view: superview) { maskedViewImage in
             DispatchQueue.main.async {
-                self.imageView.image = image
+                self.imageView.image = maskedViewImage
                 self.idle = true
             }
         }

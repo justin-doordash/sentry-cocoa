@@ -1,3 +1,4 @@
+import SentrySampleShared
 import UIKit
 
 @UIApplicationMain
@@ -15,10 +16,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         if args.contains("--io.sentry.wipe-data") {
             removeAppData()
         }
-        if !args.contains("--skip-sentry-init") {
-            SentrySDKWrapper.shared.startSentry()
-        }
-        
+
+        SentrySDKWrapper.shared.startSentry()
+        SampleAppDebugMenu.shared.display()
+
         if #available(iOS 15.0, *) {
             metricKit.receiveReports()
         }
@@ -66,5 +67,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 try! FileManager.default.removeItem(atPath: ($0 as NSString).appendingPathComponent((item as! String)))
             }
         }
+
+        SentrySDKOverrides.resetDefaults()
     }
 }

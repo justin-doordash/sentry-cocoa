@@ -1,26 +1,39 @@
 import Foundation
-import Sentry
+import SentrySampleShared
 import SwiftUI
 
 @main
 struct SwiftUIApp: App {
+    @UIApplicationDelegateAdaptor private var appDelegate: MyAppDelegate
+
     init() {
-        SentrySDK.start { options in
-            options.dsn = "https://6cc9bae94def43cab8444a99e0031c28@o447951.ingest.sentry.io/5428557"
-            options.debug = true
-            options.tracesSampleRate = 1.0
-            options.profilesSampleRate = 1.0
-            options.sessionReplay.sessionSampleRate = 1.0
-            options.initialScope = { scope in
-                scope.injectGitInformation()
-                return scope
-            }
-        }
+        SentrySDKWrapper.shared.startSentry()
     }
-    
+
     var body: some Scene {
         WindowGroup {
             ContentView()
         }
+    }
+}
+
+class MyAppDelegate: NSObject, UIApplicationDelegate, ObservableObject {
+    func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(
+            name: nil,
+            sessionRole: connectingSceneSession.role)
+        if connectingSceneSession.role == .windowApplication {
+            configuration.delegateClass = MySceneDelegate.self
+        }
+        return configuration
+    }
+}
+
+class MySceneDelegate: NSObject, UIWindowSceneDelegate, ObservableObject {
+    var initializedSentry = false
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        guard !initializedSentry else { return }
+        SampleAppDebugMenu.shared.display()
+        initializedSentry = true
     }
 }

@@ -1,7 +1,9 @@
 #if __has_include(<Sentry/Sentry.h>)
 #    import <Sentry/SentryDefines.h>
-#else
+#elif __has_include(<SentryWithoutUIKit/Sentry.h>)
 #    import <SentryWithoutUIKit/SentryDefines.h>
+#else
+#    import <SentryDefines.h>
 #endif
 
 @protocol SentrySpan;
@@ -9,6 +11,7 @@
 @class SentryBreadcrumb;
 @class SentryEvent;
 @class SentryFeedback;
+@class SentryFeedbackAPI;
 @class SentryId;
 @class SentryMetricsAPI;
 @class SentryOptions;
@@ -263,12 +266,19 @@ SENTRY_NO_INIT
 
 /**
  * Captures user feedback that was manually gathered and sends it to Sentry.
+ * @warning This is an experimental feature and may still have bugs.
  * @param feedback The feedback to send to Sentry.
  * @note If you'd prefer not to have to build the UI required to gather the feedback from the user,
  * see @c SentryOptions.configureUserFeedback to customize a fully managed integration. See
  * https://docs.sentry.io/platforms/apple/user-feedback/ for more information.
  */
 + (void)captureFeedback:(SentryFeedback *)feedback NS_SWIFT_NAME(capture(feedback:));
+
+#if TARGET_OS_IOS && SENTRY_HAS_UIKIT
+
+@property (nonatomic, class, readonly) SentryFeedbackAPI *feedback API_AVAILABLE(ios(13.0));
+
+#endif // TARGET_OS_IOS && SENTRY_HAS_UIKIT
 
 /**
  * Adds a Breadcrumb to the current Scope of the current Hub. If the total number of breadcrumbs
@@ -371,11 +381,23 @@ SENTRY_NO_INIT
 #if SENTRY_TARGET_PROFILING_SUPPORTED
 /**
  * Start a new continuous profiling session if one is not already running.
- * @note Unlike trace-based profiling, continuous profiling does not take into account @c
- * SentryOptions.profilesSampleRate ; a call to this method will always start a profile if one is
- * not already running. This includes app launch profiles configured with @c
- * SentryOptions.enableAppLaunchProfiling .
  * @warning Continuous profiling mode is experimental and may still contain bugs.
+ * @note Unlike transaction-based profiling, continuous profiling does not take into account
+ * @c SentryOptions.profilesSampleRate or @c SentryOptions.profilesSampler . If either of those
+ * options are set, this method does nothing.
+ * @note Taking into account the above note, if @c SentryOptions.configureProfiling is not set,
+ * calls to this method will always start a profile if one is not already running. This includes app
+ * launch profiles configured with @c SentryOptions.enableAppLaunchProfiling .
+ * @note If neither @c SentryOptions.profilesSampleRate nor @c SentryOptions.profilesSampler are
+ * set, and @c SentryOptions.configureProfiling is set, this method does nothing if the profiling
+ * session is not sampled with respect to @c SentryOptions.profileSessionSampleRate , or if it is
+ * sampled but the profiler is already running.
+ * @note If neither @c SentryOptions.profilesSampleRate nor @c SentryOptions.profilesSampler are
+ * set, and @c SentryOptions.configureProfiling is set, this method does nothing if
+ * @c SentryOptions.profileLifecycle is set to @c trace . In this scenario, the profiler is
+ * automatically started and stopped depending on whether there is an active sampled span, so it is
+ * not permitted to manually start profiling.
+ * @note Profiling is automatically disabled if a thread sanitizer is attached.
  * @seealso https://docs.sentry.io/platforms/apple/guides/ios/profiling/#continuous-profiling
  */
 + (void)startProfiler;
@@ -383,6 +405,13 @@ SENTRY_NO_INIT
 /**
  * Stop a continuous profiling session if there is one ongoing.
  * @warning Continuous profiling mode is experimental and may still contain bugs.
+ * @note Does nothing if @c SentryOptions.profileLifecycle is set to @c trace .
+ * @note Does not immediately stop the profiler. Profiling data is uploaded at regular timed
+ * intervals; when the current interval completes, then the profiler stops and the data gathered
+ * during that last interval is uploaded.
+ * @note If a new call to @c startProfiler that would start the profiler is made before the last
+ * interval completes, the profiler will continue running until another call to stop is made.
+ * @note Profiling is automatically disabled if a thread sanitizer is attached.
  * @seealso https://docs.sentry.io/platforms/apple/guides/ios/profiling/#continuous-profiling
  */
 + (void)stopProfiler;

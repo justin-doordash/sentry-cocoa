@@ -1,5 +1,5 @@
 import Foundation
-@testable import Sentry
+@_spi(Private) @testable import Sentry
 
 public func clearTestState() {
     TestCleanup.clearTestState()
@@ -30,21 +30,20 @@ class TestCleanup: NSObject {
         SentrySDK.setStart(nil)
         PrivateSentrySDKOnly.appStartMeasurementHybridSDKMode = false
         SentryNetworkTracker.sharedInstance.disable()
-        
-        SentryLog.setTestDefaultLogLevel()
+
+        SentryLog.setDefaultTestLogConfiguration()
 
         #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
 
         setenv("ActivePrewarm", "0", 1)
         SentryAppStartTracker.load()
-        SentryUIViewControllerPerformanceTracker.shared.alwaysWaitForFullDisplay = false
+        SentryDependencyContainer.sharedInstance().uiViewControllerPerformanceTracker.alwaysWaitForFullDisplay = false
         SentryDependencyContainer.sharedInstance().swizzleWrapper.removeAllCallbacks()
         SentryDependencyContainer.sharedInstance().fileManager.clearDiskState()
         
         #endif // os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
         
         SentryDependencyContainer.reset()
-        Dynamic(SentryGlobalEventProcessor.shared()).removeAllProcessors()
         SentryPerformanceTracker.shared.clear()
 
         SentryTracer.resetAppStartMeasurementRead()

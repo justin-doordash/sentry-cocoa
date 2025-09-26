@@ -1,5 +1,5 @@
-@testable import Sentry
-import SentryTestUtils
+@_spi(Private) @testable import Sentry
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 // swiftlint:disable file_length
@@ -11,12 +11,12 @@ class SentryHttpTransportTests: XCTestCase {
         let event: Event
         let eventEnvelope: SentryEnvelope
         let attachmentEnvelopeItem: SentryEnvelopeItem
-        let eventWithAttachmentRequest: SentryNSURLRequest
+        let eventWithAttachmentRequest: URLRequest
         let eventWithSessionEnvelope: SentryEnvelope
-        let eventWithSessionRequest: SentryNSURLRequest
+        let eventWithSessionRequest: URLRequest
         let session: SentrySession
         let sessionEnvelope: SentryEnvelope
-        let sessionRequest: SentryNSURLRequest
+        let sessionRequest: URLRequest
         let currentDateProvider: TestCurrentDateProvider
         let fileManager: SentryFileManager
         let options: Options
@@ -39,7 +39,7 @@ class SentryHttpTransportTests: XCTestCase {
         let userFeedback: UserFeedback = TestData.userFeedback
         let feedback: SentryFeedback = TestData.feedback
         @available(*, deprecated, message: "SentryUserFeedback is deprecated in favor of SentryFeedback. There is currently no envelope initializer accepting a SentryFeedback; the envelope is currently built directly in -[SentryClient captureFeedback:withScope:] and sent to -[SentryTransportAdapter sendEvent:traceContext:attachments:additionalEnvelopeItems:].")
-        lazy var userFeedbackRequest: SentryNSURLRequest = {
+        lazy var userFeedbackRequest: URLRequest = {
             let userFeedbackEnvelope = SentryEnvelope(userFeedback: userFeedback)
             userFeedbackEnvelope.header.sentAt = SentryDependencyContainer.sharedInstance().dateProvider.date()
             return buildRequest(userFeedbackEnvelope)
@@ -47,7 +47,7 @@ class SentryHttpTransportTests: XCTestCase {
         
         let clientReport: SentryClientReport
         let clientReportEnvelope: SentryEnvelope
-        let clientReportRequest: SentryNSURLRequest
+        let clientReportRequest: URLRequest
         
         let queue = DispatchQueue(label: "SentryHttpTransportTests", qos: .userInitiated, attributes: [.concurrent, .initiallyInactive])
 
@@ -138,6 +138,7 @@ class SentryHttpTransportTests: XCTestCase {
             return SentryHttpTransport(
                 options: options,
                 cachedEnvelopeSendDelay: 0.0,
+                dateProvider: currentDateProvider,
                 fileManager: fileManager ?? self.fileManager,
                 requestManager: requestManager,
                 requestBuilder: requestBuilder,
@@ -152,9 +153,9 @@ class SentryHttpTransportTests: XCTestCase {
         try TestConstants.dsn(username: "SentryHttpTransportTests")
     }
 
-    private class func buildRequest(_ envelope: SentryEnvelope) -> SentryNSURLRequest {
+    private class func buildRequest(_ envelope: SentryEnvelope) -> URLRequest {
         let envelopeData = try! XCTUnwrap(SentrySerialization.data(with: envelope))
-        return try! SentryNSURLRequest(envelopeRequestWith: dsn(), andData: envelopeData)
+        return try! SentryURLRequestFactory.envelopeRequest(with: dsn(), data: envelopeData)
     }
 
     private var fixture: Fixture!
@@ -226,18 +227,23 @@ class SentryHttpTransportTests: XCTestCase {
     }
     
     @available(*, deprecated, message: "SentryUserFeedback is deprecated in favor of SentryFeedback. There is currently no envelope initializer accepting a SentryFeedback; the envelope is currently built directly in -[SentryClient captureFeedback:withScope:] and sent to -[SentryTransportAdapter sendEvent:traceContext:attachments:additionalEnvelopeItems:]. This test case can be removed in favor of SentryClientTests.testCaptureFeedback")
-    func testSendUserFeedback() {
+    func testSendUserFeedback() throws {
         let envelope = SentryEnvelope(userFeedback: fixture.userFeedback)
         sut.send(envelope: envelope)
         waitForAllRequests()
 
         XCTAssertEqual(1, fixture.requestManager.requests.count)
 
-        let actualRequest = fixture.requestManager.requests.last
-        XCTAssertEqual(fixture.userFeedbackRequest.httpBody, actualRequest?.httpBody, "Request for user feedback is faulty.")
+        let actualData = try XCTUnwrap(fixture.requestManager.requests.last?.httpBody)
+        let expectedData = try XCTUnwrap(fixture.userFeedbackRequest.httpBody)
+        let decompressedActualData = try XCTUnwrap(sentry_unzippedData(actualData))
+        let decompressedExpectedData = try XCTUnwrap(sentry_unzippedData(expectedData))
+        let actualEnvelope = try XCTUnwrap(SentrySerialization.envelope(with: decompressedActualData))
+        let expectedEnvelope = try XCTUnwrap(SentrySerialization.envelope(with: decompressedExpectedData))
+        try EnvelopeUtils.assertEnvelope(expected: expectedEnvelope, actual: actualEnvelope)
     }
     
-    func testSendEventWithSession_RateLimitForEventIsActive_OnlySessionSent() {
+    func testSendEventWithSession_RateLimitForEventIsActive_OnlySessionSent() throws {
         givenRateLimitResponse(forCategory: "error")
         sendEvent()
 
@@ -257,7 +263,14 @@ class SentryHttpTransportTests: XCTestCase {
         let envelope = SentryEnvelope(id: fixture.event.eventId, items: envelopeItems)
         envelope.header.sentAt = SentryDependencyContainer.sharedInstance().dateProvider.date()
         let request = SentryHttpTransportTests.buildRequest(envelope)
-        XCTAssertEqual(request.httpBody, fixture.requestManager.requests.last?.httpBody)
+
+        let actualData = try XCTUnwrap(request.httpBody)
+        let expectedData = try XCTUnwrap(fixture.requestManager.requests.last?.httpBody)
+        let decompressedActualData = try XCTUnwrap(sentry_unzippedData(actualData))
+        let decompressedExpectedData = try XCTUnwrap(sentry_unzippedData(expectedData))
+        let actualEnvelope = try XCTUnwrap(SentrySerialization.envelope(with: decompressedActualData))
+        let expectedEnvelope = try XCTUnwrap(SentrySerialization.envelope(with: decompressedExpectedData))
+        try EnvelopeUtils.assertEnvelope(expected: expectedEnvelope, actual: actualEnvelope)
     }
     
     func testSendAllCachedEvents() {
@@ -467,7 +480,7 @@ class SentryHttpTransportTests: XCTestCase {
         let sessionEnvelope = SentryEnvelope(id: fixture.event.eventId, singleItem: SentryEnvelopeItem(session: fixture.session))
         sessionEnvelope.header.sentAt = SentryDependencyContainer.sharedInstance().dateProvider.date()
         let sessionData = try XCTUnwrap(SentrySerialization.data(with: sessionEnvelope))
-        let sessionRequest = try! SentryNSURLRequest(envelopeRequestWith: SentryHttpTransportTests.dsn(), andData: sessionData)
+        let sessionRequest = try! SentryURLRequestFactory.envelopeRequest(with: SentryHttpTransportTests.dsn(), data: sessionData)
 
         if fixture.requestManager.requests.invocations.count > 3 {
             XCTAssertEqual(sessionRequest.httpBody, try XCTUnwrap(fixture.requestManager.requests.invocations.element(at: 3)).httpBody, "Envelope with only session item should be sent.")
@@ -679,6 +692,36 @@ class SentryHttpTransportTests: XCTestCase {
         assertRequestsSent(requestCount: 1)
     }
     
+    func testSendEnvelope_HTTPResponse199_DoesNotDeleteEnvelopeAndStopsSending() throws {
+        // Arrange
+        let sentryUrl = try XCTUnwrap(URL(string: "https://sentry.io"))
+        let response = HTTPURLResponse(url: sentryUrl, statusCode: 199, httpVersion: nil, headerFields: nil)
+        
+        fixture.requestManager.returnResponse(response: response)
+        
+        // Act
+        sendEvent()
+        
+        // Assert
+        assertEnvelopesStored(envelopeCount: 1)
+        assertRequestsSent(requestCount: 1)
+    }
+    
+    func testSendEnvelope_HTTPResponse201_DoesNotDeleteEnvelopeAndStopsSending() throws {
+        // Arrange
+        let sentryUrl = try XCTUnwrap(URL(string: "https://sentry.io"))
+        let response = HTTPURLResponse(url: sentryUrl, statusCode: 201, httpVersion: nil, headerFields: nil)
+        
+        fixture.requestManager.returnResponse(response: response)
+        
+        // Act
+        sendEvent()
+        
+        // Assert
+        assertEnvelopesStored(envelopeCount: 1)
+        assertRequestsSent(requestCount: 1)
+    }
+    
     func testDeallocated_CachedEnvelopesNotAllSent() throws {
         givenNoInternetConnection()
         givenCachedEvents(amount: 10)
@@ -801,45 +844,36 @@ class SentryHttpTransportTests: XCTestCase {
     func testFlush_BlocksCallingThread_TimesOut() {
         givenCachedEvents(amount: 30)
         fixture.requestManager.responseDelay = fixture.flushTimeout + 0.2
-        
-        SentryLog.withoutLogs {
-            let beforeFlush = getAbsoluteTime()
-            let result = sut.flush(fixture.flushTimeout)
-            let blockingDuration = getDurationNs(beforeFlush, getAbsoluteTime()).toTimeInterval()
-            
-            XCTAssertGreaterThan(blockingDuration, fixture.flushTimeout)
-            XCTAssertLessThan(blockingDuration, fixture.flushTimeout + 0.1)
-            
-            XCTAssertEqual(.timedOut, result)
-        }
+
+        let beforeFlush = SentryDefaultCurrentDateProvider.getAbsoluteTime()
+        let result = sut.flush(fixture.flushTimeout)
+        let blockingDuration = getDurationNs(beforeFlush, SentryDefaultCurrentDateProvider.getAbsoluteTime()).toTimeInterval()
+
+        XCTAssertGreaterThan(blockingDuration, fixture.flushTimeout)
+        XCTAssertLessThan(blockingDuration, fixture.flushTimeout + 0.1)
+
+        XCTAssertEqual(.timedOut, result)
     }
     
     func testFlush_BlocksCallingThread_FinishesFlushingWhenSent() {
         givenCachedEvents(amount: 1)
-        
-        SentryLog.withoutLogs {
-            
-            let beforeFlush = getAbsoluteTime()
-            XCTAssertEqual(.success, sut.flush(fixture.flushTimeout), "Flush should not time out.")
-            let blockingDuration = getDurationNs(beforeFlush, getAbsoluteTime()).toTimeInterval()
-            XCTAssertLessThan(blockingDuration, fixture.flushTimeout)
-            
-        }
+
+        let beforeFlush = SentryDefaultCurrentDateProvider.getAbsoluteTime()
+        XCTAssertEqual(.success, sut.flush(fixture.flushTimeout), "Flush should not time out.")
+        let blockingDuration = getDurationNs(beforeFlush, SentryDefaultCurrentDateProvider.getAbsoluteTime()).toTimeInterval()
+        XCTAssertLessThan(blockingDuration, fixture.flushTimeout)
     }
     
     func testFlush_CalledSequentially_BlocksTwice() {
         givenCachedEvents()
-        
-        SentryLog.withoutLogs {
-            
-            let beforeFlush = getAbsoluteTime()
-            XCTAssertEqual(.success, sut.flush(fixture.flushTimeout), "Flush should not time out.")
-            XCTAssertEqual(.success, sut.flush(fixture.flushTimeout), "Flush should not time out.")
-            let blockingDuration = getDurationNs(beforeFlush, getAbsoluteTime()).toTimeInterval()
-            
-            XCTAssertLessThan(blockingDuration, fixture.flushTimeout * 2.2,
-                              "The blocking duration must not exceed the sum of the maximum flush duration.")
-        }
+
+        let beforeFlush = SentryDefaultCurrentDateProvider.getAbsoluteTime()
+        XCTAssertEqual(.success, sut.flush(fixture.flushTimeout), "Flush should not time out.")
+        XCTAssertEqual(.success, sut.flush(fixture.flushTimeout), "Flush should not time out.")
+        let blockingDuration = getDurationNs(beforeFlush, SentryDefaultCurrentDateProvider.getAbsoluteTime()).toTimeInterval()
+
+        XCTAssertLessThan(blockingDuration, fixture.flushTimeout * 2.2,
+                          "The blocking duration must not exceed the sum of the maximum flush duration.")
     }
     
     func testFlush_WhenNoEnvelopes_BlocksAndFinishes() {
@@ -848,20 +882,16 @@ class SentryHttpTransportTests: XCTestCase {
         var blockingDurationSum: TimeInterval = 0.0
         let flushInvocations = 100
         
-        SentryLog.withoutLogs {
-            
-            for _ in  0..<flushInvocations {
-                let beforeFlush = getAbsoluteTime()
-                XCTAssertEqual(sut.flush(self.fixture.flushTimeout), .success, "Flush should not time out.")
-                let blockingDuration = getDurationNs(beforeFlush, getAbsoluteTime()).toTimeInterval()
-                
-                blockingDurationSum += blockingDuration
-            }
-            
-            let blockingDurationAverage = blockingDurationSum / Double(flushInvocations)
-            XCTAssertLessThan(blockingDurationAverage, 0.1)
-            
+        for _ in  0..<flushInvocations {
+            let beforeFlush = SentryDefaultCurrentDateProvider.getAbsoluteTime()
+            XCTAssertEqual(sut.flush(self.fixture.flushTimeout), .success, "Flush should not time out.")
+            let blockingDuration = getDurationNs(beforeFlush, SentryDefaultCurrentDateProvider.getAbsoluteTime()).toTimeInterval()
+
+            blockingDurationSum += blockingDuration
         }
+
+        let blockingDurationAverage = blockingDurationSum / Double(flushInvocations)
+        XCTAssertLessThan(blockingDurationAverage, 0.1)
     }
     
     func testFlush_WhenNoInternet_BlocksAndFinishes() {
@@ -874,84 +904,75 @@ class SentryHttpTransportTests: XCTestCase {
         
         var blockingDurationSum: TimeInterval = 0.0
         let flushInvocations = 100
-        
-        SentryLog.withoutLogs {
-            
-            for _ in  0..<flushInvocations {
-                let beforeFlush = getAbsoluteTime()
-                XCTAssertEqual(sut.flush(self.fixture.flushTimeout), .success, "Flush should not time out.")
-                let blockingDuration = getDurationNs(beforeFlush, getAbsoluteTime()).toTimeInterval()
-                
-                blockingDurationSum += blockingDuration
-            }
-            
-            let blockingDurationAverage = blockingDurationSum / Double(flushInvocations)
-            XCTAssertLessThan(blockingDurationAverage, 0.1)
+
+        for _ in  0..<flushInvocations {
+            let beforeFlush = SentryDefaultCurrentDateProvider.getAbsoluteTime()
+            XCTAssertEqual(sut.flush(self.fixture.flushTimeout), .success, "Flush should not time out.")
+            let blockingDuration = getDurationNs(beforeFlush, SentryDefaultCurrentDateProvider.getAbsoluteTime()).toTimeInterval()
+
+            blockingDurationSum += blockingDuration
         }
+
+        let blockingDurationAverage = blockingDurationSum / Double(flushInvocations)
+        XCTAssertLessThan(blockingDurationAverage, 0.1)
     }
     
     func testFlush_CallingFlushDirectlyAfterCapture_Flushes() {
         let sut = fixture.getSut(dispatchQueueWrapper: SentryDispatchQueueWrapper())
-        
-        SentryLog.withoutLogs {
             
-            for _ in 0..<10 {
-                sut.send(envelope: fixture.eventEnvelope)
-                
-                XCTAssertEqual(sut.flush(self.fixture.flushTimeout), .success, "Flush should not time out.")
-                
-                XCTAssertEqual(self.fixture.fileManager.getAllEnvelopes().count, 0)
-            }
+        for _ in 0..<10 {
+            sut.send(envelope: fixture.eventEnvelope)
+
+            XCTAssertEqual(sut.flush(self.fixture.flushTimeout), .success, "Flush should not time out.")
+
+            XCTAssertEqual(self.fixture.fileManager.getAllEnvelopes().count, 0)
         }
+
     }
     
     func testFlush_CalledMultipleTimes_ImmediatelyReturnsFalse() {
-        SentryLog.withoutLogs {
-            
-            givenCachedEvents(amount: 30)
-            
-            let flushTimeout = 0.1
-            fixture.requestManager.waitForResponseDispatchGroup = true
-            fixture.requestManager.responseDispatchGroup.enter()
-            
-            let allFlushCallsGroup = DispatchGroup()
-            let ensureFlushingGroup = DispatchGroup()
-            let ensureFlushingQueue = DispatchQueue(label: "First flushing")
-            
-            sut.setStartFlushCallback {
-                ensureFlushingGroup.leave()
-            }
-            
+        givenCachedEvents(amount: 30)
+
+        let flushTimeout = 0.1
+        fixture.requestManager.waitForResponseDispatchGroup = true
+        fixture.requestManager.responseDispatchGroup.enter()
+
+        let allFlushCallsGroup = DispatchGroup()
+        let ensureFlushingGroup = DispatchGroup()
+        let ensureFlushingQueue = DispatchQueue(label: "First flushing")
+
+        sut.setStartFlushCallback {
+            ensureFlushingGroup.leave()
+        }
+
+        allFlushCallsGroup.enter()
+        ensureFlushingGroup.enter()
+        ensureFlushingQueue.async {
+            XCTAssertEqual(.timedOut, self.sut.flush(flushTimeout))
+            self.fixture.requestManager.responseDispatchGroup.leave()
+            allFlushCallsGroup.leave()
+        }
+
+        // Ensure transport is flushing.
+        ensureFlushingGroup.waitWithTimeout()
+
+        // Now the transport should also have left the synchronized block, and the
+        // flush should return immediately.
+
+        let initiallyInactiveQueue = fixture.queue
+        for _ in 0..<2 {
             allFlushCallsGroup.enter()
-            ensureFlushingGroup.enter()
-            ensureFlushingQueue.async {
-                XCTAssertEqual(.timedOut, self.sut.flush(flushTimeout))
-                self.fixture.requestManager.responseDispatchGroup.leave()
+            initiallyInactiveQueue.async {
+                for _ in 0..<10 {
+                    XCTAssertEqual(.alreadyFlushing, self.sut.flush(flushTimeout), "Flush should have returned immediately")
+                }
+
                 allFlushCallsGroup.leave()
             }
-            
-            // Ensure transport is flushing.
-            ensureFlushingGroup.waitWithTimeout()
-            
-            // Now the transport should also have left the synchronized block, and the
-            // flush should return immediately.
-            
-            let initiallyInactiveQueue = fixture.queue
-            for _ in 0..<2 {
-                allFlushCallsGroup.enter()
-                initiallyInactiveQueue.async {
-                    for _ in 0..<10 {
-                        XCTAssertEqual(.alreadyFlushing, self.sut.flush(flushTimeout), "Flush should have returned immediately")
-                    }
-                    
-                    allFlushCallsGroup.leave()
-                }
-            }
-            
-            initiallyInactiveQueue.activate()
-            allFlushCallsGroup.waitWithTimeout()
-            
         }
+
+        initiallyInactiveQueue.activate()
+        allFlushCallsGroup.waitWithTimeout()
     }
 
 #if !os(watchOS)

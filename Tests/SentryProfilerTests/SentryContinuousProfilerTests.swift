@@ -1,6 +1,6 @@
 import _SentryPrivate
-@testable import Sentry
-import SentryTestUtils
+@_spi(Private) @testable import Sentry
+@_spi(Private) import SentryTestUtils
 import XCTest
 
 #if os(iOS) || os(macOS) || targetEnvironment(macCatalyst)
@@ -10,7 +10,7 @@ final class SentryContinuousProfilerTests: XCTestCase {
     
     override class func setUp() {
         super.setUp()
-        SentryLog.configure(true, diagnosticLevel: .debug)
+        SentryLogSwiftSupport.configure(true, diagnosticLevel: .debug)
     }
     
     override func setUp() {
@@ -75,9 +75,24 @@ final class SentryContinuousProfilerTests: XCTestCase {
     func testStartingContinuousProfilerWithZeroSampleRate() throws {
         fixture.options.profilesSampleRate = 0
         try performContinuousProfilingTest()
-    }    
+    }
 
-    #if !os(macOS)
+#if !os(macOS)
+
+    func testStopsFramesTracker_WhenAutoPerformanceAndAppHangsV2Disabled() throws {
+        fixture.options.enableAutoPerformanceTracing = false
+        try performContinuousProfilingTest()
+
+        XCTAssertFalse(SentryDependencyContainer.sharedInstance().framesTracker.isRunning)
+    }
+
+    func testDoesNotStopFramesTracker_WhenAppHangsV2Enabled() throws {
+        fixture.options.enableAppHangTrackingV2 = true
+        try performContinuousProfilingTest()
+
+        XCTAssertTrue(SentryDependencyContainer.sharedInstance().framesTracker.isRunning)
+    }
+
     // test that receiving a background notification stops the continuous
     // profiler after it has been started manually
     func testStoppingContinuousProfilerStopsOnBackground() throws {
@@ -105,7 +120,7 @@ final class SentryContinuousProfilerTests: XCTestCase {
         SentrySDK.close()
         try assertContinuousProfileStoppage()
     }
-    
+
     func testStartingAPerformanceTransactionDoesNotStartProfiler() throws {
         let manualSpan = try fixture.newTransaction()
         XCTAssertFalse(SentryContinuousProfiler.isCurrentlyProfiling())
@@ -161,6 +176,34 @@ final class SentryContinuousProfilerTests: XCTestCase {
         SentryContinuousProfiler.stop()
         try assertContinuousProfileStoppage()
     }
+
+    func testStoppingAndStartingAgainBeforeFinalChunkCompletesResultsInOneProfile() throws {
+        // arrange
+        SentryContinuousProfiler.start()
+        XCTAssert(SentryContinuousProfiler.isCurrentlyProfiling())
+
+        // act
+        fixture.currentDateProvider.advanceBy(interval: 1)
+        SentryContinuousProfiler.stop()
+
+        fixture.currentDateProvider.advanceBy(interval: 1)
+        XCTAssert(SentryContinuousProfiler.isCurrentlyProfiling())
+
+        fixture.currentDateProvider.advanceBy(interval: 1)
+        SentryContinuousProfiler.start()
+
+        fixture.currentDateProvider.advanceBy(interval: 60)
+        try fixture.timeoutTimerFactory.check()
+        XCTAssert(SentryContinuousProfiler.isCurrentlyProfiling())
+
+        fixture.currentDateProvider.advanceBy(interval: 1)
+        SentryContinuousProfiler.stop()
+
+        // assert
+        fixture.currentDateProvider.advanceBy(interval: 60)
+        try fixture.timeoutTimerFactory.check()
+        XCTAssertFalse(SentryContinuousProfiler.isCurrentlyProfiling())
+    }
 }
 
 private extension SentryContinuousProfilerTests {
@@ -214,6 +257,7 @@ private extension SentryContinuousProfilerTests {
         XCTAssertEqual(1, envelope.items.count)
         let profileItem = try XCTUnwrap(envelope.items.first)
         XCTAssertEqual("profile_chunk", profileItem.header.type)
+        XCTAssertEqual("cocoa", profileItem.header.platform)
         let data = profileItem.data
         let profile = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
 

@@ -17,7 +17,7 @@ class SentryTouchTracker: NSObject {
         }
     }
     
-    private class TouchInfo {
+    private final class TouchInfo {
         let id: Int
         
         var startEvent: TouchEvent?
@@ -46,7 +46,7 @@ class SentryTouchTracker: NSObject {
         self.dispatchQueue = dispatchQueue
     }
     
-    convenience init(dateProvider: SentryCurrentDateProvider, scale: Float) {
+    public convenience init(dateProvider: SentryCurrentDateProvider, scale: Float) {
         // SentryTouchTracker has it own dispatch queue instead of using the one
         // from Dependency container to avoid the bottleneck of sharing the same
         // queue with the rest of the SDK.
@@ -118,6 +118,7 @@ class SentryTouchTracker: NSObject {
     }
     
     func flushFinishedEvents() {
+        SentryLog.debug("[Session Replay] Flushing finished events")
         dispatchQueue.dispatchSync { [self] in
             trackedTouches = trackedTouches.filter { $0.value.endEvent == nil }
         }
