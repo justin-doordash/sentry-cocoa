@@ -28,8 +28,7 @@ sentry_isProfilingCorrelatedToTraces(SentryClient *client)
     return [client.options isProfilingCorrelatedToTraces];
 }
 
-SentryProfileOptions *
-sentry_getProfiling(SentryClient *client)
+SentryProfileOptions *_Nullable sentry_getProfiling(SentryClient *client)
 {
     return client.options.profiling;
 }
@@ -82,8 +81,7 @@ sentry_profileAppStarts(SentryProfileOptions *options)
     return options.profileAppStarts;
 }
 
-SentrySpanId *
-sentry_getParentSpanID(SentryTransactionContext *context)
+SentrySpanId *_Nullable sentry_getParentSpanID(SentryTransactionContext *context)
 {
     return context.parentSpanId;
 }
@@ -144,6 +142,27 @@ sentry_addObserverForName(NSNotificationName name, dispatch_block_t block)
                     object:nil
                      queue:nil
                 usingBlock:^(NSNotification *_Nonnull notification) { block(); }];
+}
+
+NSTimer *
+sentry_scheduledTimer(NSTimeInterval interval, BOOL repeats, dispatch_block_t block)
+{
+    return [SentryDependencyContainer.sharedInstance.timerFactory
+        scheduledTimerWithTimeInterval:interval
+                               repeats:repeats
+                                 block:^(NSTimer *_Nonnull timer) { block(); }];
+}
+
+NSTimer *
+sentry_scheduledTimerWithTarget(
+    NSTimeInterval interval, id target, SEL selector, _Nullable id userInfo, BOOL repeats)
+{
+    return [SentryDependencyContainer.sharedInstance.timerFactory
+        scheduledTimerWithTimeInterval:interval
+                                target:target
+                              selector:selector
+                              userInfo:userInfo
+                               repeats:repeats];
 }
 
 #endif // SENTRY_TARGET_PROFILING_SUPPORTED

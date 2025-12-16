@@ -1,13 +1,11 @@
 #import "SentryCrashIntegrationSessionHandler.h"
 #import "SentryClient+Private.h"
-#import "SentryCrashWrapper.h"
 #import "SentryDependencyContainer.h"
 #import "SentryFileManager.h"
 #import "SentryHub.h"
 #import "SentryInternalDefines.h"
 #import "SentryLogC.h"
 #import "SentrySDK+Private.h"
-#import "SentrySession.h"
 #import "SentrySwift.h"
 #import "SentryWatchdogTerminationLogic.h"
 

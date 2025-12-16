@@ -7,11 +7,6 @@ on:
         description: "The fastlane command to run"
         required: true
         type: string
-      fastlane_command_extra_arguments:
-        description: "Extra arguments for the fastlane command"
-        required: false
-        default: ""
-        type: string
       files_suffix:
         description: "Suffix for the files to upload"
         required: false
@@ -40,6 +35,21 @@ on:
         required: false
         default: false
         type: boolean
+      test-destination-os:
+        description: "Test destination OS"
+        required: false
+        default: ""
+        type: string
+      device:
+        description: "Device"
+        required: false
+        default: ""
+        type: string
+      platform:
+        description: "Additional platform to install"
+        required: false
+        default: ""
+        type: string
     secrets:
       CODECOV_TOKEN:
         required: true
@@ -49,15 +59,7 @@ jobs:
     name: UI Tests Common
     runs-on: ${{ inputs.macos_version }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Print hardware info
-        shell: bash
-        run: system_profiler SPHardwareDataType
-
-      - name: Print available disk space
-        shell: bash
-        run: df -h
+      - uses: actions/checkout@v5
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@13e7a03dc3ac6c3798f4570bfead2aed4d96abfb # v1.244.0
@@ -67,15 +69,22 @@ jobs:
       - name: Install old xcodegen
         if: ${{ inputs.xcode_version == '14.3.1' || inputs.xcode_version == '15.4' }}
         # Install xcodegen 2.43.0 for since newer versions don't work with Xcode older than Xcode 16
+        # We need to set HOMEBREW_DEVELOPER=1 to allow installing from a local formula
         run: |
-          brew install --formula ./scripts/xcodegen.rb
+          HOMEBREW_DEVELOPER=1 brew install --formula ./scripts/xcodegen.rb
           brew pin xcodegen
 
       - name: Select Xcode version
         run: ./scripts/ci-select-xcode.sh "$XCODE_VERSION"
         env:
           XCODE_VERSION: ${{ inputs.xcode_version }}
+      - name: Install required platforms for Xcode 26
+        if: ${{ inputs.xcode_version == '26.1' }}
+        run: ./scripts/ci-install-xOS-26-platforms.sh --platforms "${{inputs.platform}}"
 
+      - name: Create simulator device for Xcode 26
+        if: ${{ inputs.xcode_version == '26.1' }}
+        run: ./scripts/ci-create-simulator.sh --platform "${{inputs.platform}}" --os-version "${{inputs.test-destination-os}}" --device-name "${{inputs.device}}"
       - run: make init-ci-build
         if: ${{ inputs.build_with_make }}
 
@@ -87,7 +96,7 @@ jobs:
 
       - name: Download XCFramework
         if: ${{ inputs.needs_xcframework }}
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: xcframework-${{github.sha}}-sentry-static
           path: Carthage/
@@ -100,10 +109,9 @@ jobs:
       - name: Run Fastlane
         env:
           FASTLANE_COMMAND: ${{ inputs.fastlane_command }}
-          FASTLANE_EXTRA_ARGS: ${{ inputs.fastlane_command_extra_arguments }}
         run: |
-          if [ -n "$FASTLANE_EXTRA_ARGS" ]; then
-            bundle exec fastlane "$FASTLANE_COMMAND" "$FASTLANE_EXTRA_ARGS"
+          if [ -n "${{inputs.device}}" ] && [ -n "${{inputs.test-destination-os}}" ]; then
+            bundle exec fastlane "$FASTLANE_COMMAND" device:"${{inputs.device}} (${{inputs.test-destination-os}})"
           else
             bundle exec fastlane "$FASTLANE_COMMAND"
           fi
@@ -156,3 +164,7 @@ jobs:
         if: failure()
         with:
           suffix: ${{ inputs.fastlane_command }}${{ inputs.files_suffix }}
+
+      - name: Run CI Diagnostics
+        if: failure()
+        run: ./scripts/ci-diagnostics.sh

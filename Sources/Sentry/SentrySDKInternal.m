@@ -3,18 +3,15 @@
 #import "SentryANRTrackingIntegration.h"
 #import "SentryAppStartMeasurement.h"
 #import "SentryAppStateManager.h"
-#import "SentryBinaryImageCache.h"
 #import "SentryBreadcrumb.h"
 #import "SentryClient+Private.h"
 #import "SentryCrash.h"
-#import "SentryCrashWrapper.h"
 #import "SentryDependencyContainer.h"
 #import "SentryFileManager.h"
 #import "SentryHub+Private.h"
 #import "SentryInternalDefines.h"
 #import "SentryLogC.h"
 #import "SentryMeta.h"
-#import "SentryNSProcessInfoWrapper.h"
 #import "SentryOptions+Private.h"
 #import "SentryOptionsInternal.h"
 #import "SentryProfilingConditionals.h"
@@ -25,7 +22,6 @@
 #import "SentrySerialization.h"
 #import "SentrySwift.h"
 #import "SentryTransactionContext.h"
-#import "SentryUIApplication.h"
 #import "SentryUseNSExceptionCallstackWrapper.h"
 #import "SentryUserFeedbackIntegration.h"
 
@@ -34,7 +30,6 @@
 #endif // TARGET_OS_MAC
 
 #if SENTRY_HAS_UIKIT
-#    import "SentryUIDeviceWrapper.h"
 #    import "SentryUIViewControllerPerformanceTracker.h"
 #    if TARGET_OS_IOS
 #        import "SentryFeedbackAPI.h"
@@ -258,6 +253,9 @@ static NSDate *_Nullable startTimestamp = nil;
     // Reference to SentryCrashExceptionApplication to prevent compiler from stripping it
     [SentryCrashExceptionApplication class];
 #endif
+    // These classes must be referenced somewhere for their files to not be stripped.
+    [PlaceholderSentryApplication class];
+    [PlaceholderProcessInfoClass class];
 
     startInvocations++;
     startTimestamp = [SentryDependencyContainer.sharedInstance.dateProvider date];
@@ -286,7 +284,7 @@ static NSDate *_Nullable startTimestamp = nil;
         SentryHub *hub = [[SentryHub alloc] initWithClient:newClient andScope:scope];
         [SentrySDKInternal setCurrentHub:hub];
 
-        [SentryCrashWrapper.sharedInstance startBinaryImageCache];
+        [SentryDependencyContainer.sharedInstance.crashWrapper startBinaryImageCache];
         [SentryDependencyContainer.sharedInstance.binaryImageCache start:options.debug];
 
         [SentrySDKInternal installIntegrations];
@@ -502,6 +500,17 @@ static NSDate *_Nullable startTimestamp = nil;
 
 + (void)addBreadcrumb:(SentryBreadcrumb *)crumb
 {
+    if (![SentrySDKInternal isEnabled]) {
+        // We must log with level fatal because only fatal messages get logged even when the SDK
+        // isn't started. We've seen multiple times that users try to add a breadcrumb before
+        // starting the SDK, and it confuses them. Ideally, we would do something to store the user
+        // and set it once we start the SDK, but this is a breaking change, so we live with the
+        // workaround for now.
+        SENTRY_LOG_FATAL(
+            @"The SDK is disabled, so addBreadcrumb doesn't work. Please ensure to start "
+            @"the SDK before adding breadcrumbs.");
+    }
+
     [SentrySDKInternal.currentHub addBreadcrumb:crumb];
 }
 
@@ -673,7 +682,7 @@ static NSDate *_Nullable startTimestamp = nil;
 
     [SentrySDK clearLogger];
 
-    [SentryCrashWrapper.sharedInstance stopBinaryImageCache];
+    [SentryDependencyContainer.sharedInstance.crashWrapper stopBinaryImageCache];
     [SentryDependencyContainer.sharedInstance.binaryImageCache stop];
 
 #if TARGET_OS_IOS && SENTRY_HAS_UIKIT

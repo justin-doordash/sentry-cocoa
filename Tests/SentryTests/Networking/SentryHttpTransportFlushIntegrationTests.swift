@@ -25,6 +25,7 @@ final class SentryHttpTransportFlushIntegrationTests: XCTestCase {
         XCTAssertLessThan(blockingDurationAverage, 0.1)
     }
 
+    @available(*, deprecated, message: "This is only marked as deprecated because enableAppLaunchProfiling is marked as deprecated. Once that is removed this can be removed.")
     func testFlush_WhenNoInternet_BlocksAndFinishes() throws {
         let (sut, requestManager, _, dispatchQueueWrapper) = try getSut()
 
@@ -50,6 +51,7 @@ final class SentryHttpTransportFlushIntegrationTests: XCTestCase {
         XCTAssertLessThan(blockingDurationAverage, 0.1)
     }
 
+    @available(*, deprecated, message: "This is only marked as deprecated because enableAppLaunchProfiling is marked as deprecated. Once that is removed this can be removed.")
     func testFlush_CallingFlushDirectlyAfterCapture_Flushes() throws {
         let (sut, _, fileManager, dispatchQueueWrapper) = try getSut()
 
@@ -66,6 +68,7 @@ final class SentryHttpTransportFlushIntegrationTests: XCTestCase {
         }
     }
 
+    @available(*, deprecated, message: "This is only marked as deprecated because enableAppLaunchProfiling is marked as deprecated. Once that is removed this can be removed.")
     func testFlushTimesOut_RequestManagerNeverFinishes_FlushingWorksNextTime() throws {
         let (sut, requestManager, _, dispatchQueueWrapper) = try getSut()
 
@@ -85,6 +88,7 @@ final class SentryHttpTransportFlushIntegrationTests: XCTestCase {
         XCTAssertEqual(sut.flush(self.flushTimeout), .success, "Flush should not time out.")
     }
 
+    @available(*, deprecated, message: "This is only marked as deprecated because enableAppLaunchProfiling is marked as deprecated. Once that is removed this can be removed.")
     func testFlush_CalledMultipleTimes_ImmediatelyReturnsFalse() throws {
         let (sut, requestManager, _, dispatchQueueWrapper) = try getSut()
 
@@ -98,48 +102,58 @@ final class SentryHttpTransportFlushIntegrationTests: XCTestCase {
         for _ in 0..<30 {
             sut.send(envelope: SentryEnvelope(event: Event()))
         }
-        // Wait until the dispath queue drains to confirm the envelope is stored
+        // Wait until the dispatch queue drains to confirm the envelope is stored
         waitForEnvelopeToBeStored(dispatchQueueWrapper)
         requestManager.returnResponse(response: HTTPURLResponse())
 
-        let initialFlushCallGroup = DispatchGroup()
-        let ensureFlushingGroup = DispatchGroup()
+        let initialFlushCallExpectation = XCTestExpectation(description: "Initial flush call should succeed")
+        initialFlushCallExpectation.assertForOverFulfill = true
+
+        let ensureFlushingExpectation = XCTestExpectation(description: "Ensure flushing is called")
+        ensureFlushingExpectation.assertForOverFulfill = true
+
         let ensureFlushingQueue = DispatchQueue(label: "First flushing")
 
         sut.setStartFlushCallback {
-            ensureFlushingGroup.leave()
+            ensureFlushingExpectation.fulfill()
         }
 
-        initialFlushCallGroup.enter()
-        ensureFlushingGroup.enter()
         ensureFlushingQueue.async {
             XCTAssertEqual(.success, sut.flush(flushTimeout), "Initial call to flush should succeed")
-            initialFlushCallGroup.leave()
+            initialFlushCallExpectation.fulfill()
         }
 
         // Ensure transport is flushing.
-        ensureFlushingGroup.waitWithTimeout()
+        wait(for: [ensureFlushingExpectation], timeout: 10.0)
 
         // Now the transport should also have left the synchronized block, and the
         // flush should return immediately.
 
-        let parallelFlushCallsGroup = DispatchGroup()
+        let loopCount = 2
+        let parallelFlushCallsExpectation = XCTestExpectation(description: "Parallel flush calls should return immediately")
+        parallelFlushCallsExpectation.expectedFulfillmentCount = loopCount
+        parallelFlushCallsExpectation.assertForOverFulfill = true
+
         let initiallyInactiveQueue = DispatchQueue(label: "testFlush_CalledMultipleTimes_ImmediatelyReturnsFalse", qos: .userInitiated, attributes: [.concurrent, .initiallyInactive])
-        for _ in 0..<2 {
-            parallelFlushCallsGroup.enter()
+        for _ in 0..<loopCount {
+
             initiallyInactiveQueue.async {
                 for _ in 0..<10 {
                     XCTAssertEqual(.alreadyFlushing, sut.flush(flushTimeout), "Flush should have returned immediately")
                 }
 
-                parallelFlushCallsGroup.leave()
+                parallelFlushCallsExpectation.fulfill()
             }
         }
 
         initiallyInactiveQueue.activate()
-        parallelFlushCallsGroup.waitWithTimeout()
+        wait(for: [parallelFlushCallsExpectation], timeout: 10.0)
+
         requestManager.responseDispatchGroup.leave()
-        initialFlushCallGroup.waitWithTimeout()
+
+        // The initial call to flush is blocking and will take some time to finish.
+        // Therefore, we wait at the end of the test.
+        wait(for: [initialFlushCallExpectation], timeout: 10.0)
     }
 
     // We use the test name as part of the DSN to ensure that each test runs in isolation.
@@ -151,20 +165,24 @@ final class SentryHttpTransportFlushIntegrationTests: XCTestCase {
         options.debug = true
         options.dsn = TestConstants.dsnAsString(username: "SentryHttpTransportFlushIntegrationTests.\(testName)")
 
-        let fileManager = try SentryFileManager(options: options)
+        let currentDate = SentryDefaultCurrentDateProvider()
+        let dispatchQueueWrapper = SentryDispatchQueueWrapper()
+
+        let fileManager = try SentryFileManager(
+            options: options,
+            dateProvider: currentDate,
+            dispatchQueueWrapper: dispatchQueueWrapper
+        )
         fileManager.deleteAllEnvelopes()
 
         let requestManager = TestRequestManager(session: URLSession(configuration: URLSessionConfiguration.ephemeral))
         requestManager.returnResponse(response: HTTPURLResponse())
 
-        let currentDate = SentryDefaultCurrentDateProvider()
-
         let rateLimits = DefaultRateLimits(retryAfterHeaderParser: RetryAfterHeaderParser(httpDateParser: HttpDateParser(), currentDateProvider: currentDate), andRateLimitParser: RateLimitParser(currentDateProvider: currentDate), currentDateProvider: currentDate)
-        
-        let dispatchQueueWrapper = SentryDispatchQueueWrapper()
 
         return (SentryHttpTransport(
-            options: options,
+            dsn: try XCTUnwrap(options.parsedDsn),
+            sendClientReports: options.sendClientReports,
             cachedEnvelopeSendDelay: 0.0,
             dateProvider: SentryDefaultCurrentDateProvider(),
             fileManager: fileManager,

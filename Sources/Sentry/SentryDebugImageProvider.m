@@ -1,5 +1,4 @@
 #import "SentryDebugImageProvider.h"
-#import "SentryBinaryImageCache.h"
 #import "SentryDebugImageProvider+HybridSDKs.h"
 #if !SDK_V9
 #    import "SentryCrashDefaultBinaryImageProvider.h"
@@ -13,6 +12,7 @@
 #import "SentryInternalDefines.h"
 #import "SentryLogC.h"
 #import "SentryStacktrace.h"
+#import "SentrySwift.h"
 #import "SentryThread.h"
 #import <Foundation/Foundation.h>
 
@@ -120,7 +120,11 @@ NS_ASSUME_NONNULL_BEGIN
     NSMutableSet<NSString *> *imageAddresses = [[NSMutableSet alloc] init];
 
     for (SentryThread *thread in threads) {
-        [self extractDebugImageAddressFromFrames:thread.stacktrace.frames intoSet:imageAddresses];
+        NSArray<SentryFrame *> *_Nullable frames = thread.stacktrace.frames;
+        if (frames != nil) {
+            [self extractDebugImageAddressFromFrames:SENTRY_UNWRAP_NULLABLE(NSArray, frames)
+                                             intoSet:imageAddresses];
+        }
     }
 
     return [self getDebugImagesForAddresses:imageAddresses isCrash:isCrash];
@@ -179,7 +183,11 @@ NS_ASSUME_NONNULL_BEGIN
     NSMutableSet<NSString *> *imageAddresses = [[NSMutableSet alloc] init];
 
     for (SentryThread *thread in threads) {
-        [self extractDebugImageAddressFromFrames:thread.stacktrace.frames intoSet:imageAddresses];
+        NSArray<SentryFrame *> *_Nullable frames = thread.stacktrace.frames;
+        if (frames != nil) {
+            [self extractDebugImageAddressFromFrames:SENTRY_UNWRAP_NULLABLE(NSArray, frames)
+                                             intoSet:imageAddresses];
+        }
     }
 
     return [self getDebugImagesForImageAddressesFromCache:imageAddresses];
@@ -220,7 +228,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (SentryDebugMeta *)fillDebugMetaFromBinaryImageInfo:(SentryBinaryImageInfo *)info
 {
     SentryDebugMeta *debugMeta = [[SentryDebugMeta alloc] init];
-    debugMeta.debugID = info.UUID;
+    debugMeta.debugID = info.uuid;
     debugMeta.type = SentryDebugImageType;
 
     if (info.vmAddress > 0) {

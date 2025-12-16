@@ -2,7 +2,6 @@
 #import "SentryAttachment+Private.h"
 #import "SentryBreadcrumb.h"
 #import "SentryDefines.h"
-#import "SentryEnvelopeItemType.h"
 #import "SentryEvent+Private.h"
 #import "SentryInternalDefines.h"
 #import "SentryLevelMapper.h"
@@ -12,7 +11,6 @@
 #import "SentryScope+Private.h"
 #import "SentryScope+PrivateSwift.h"
 #import "SentryScopeObserver.h"
-#import "SentrySession.h"
 #import "SentrySpan.h"
 #import "SentrySwift.h"
 #import "SentryTracer.h"
@@ -155,11 +153,13 @@ NS_ASSUME_NONNULL_BEGIN
     }
 }
 
+#if !SDK_V9
 - (void)useSpan:(SentrySpanCallback)callback
 {
     id<SentrySpan> localSpan = [self span];
     callback(localSpan);
 }
+#endif // !SDK_V9
 
 - (void)clear
 {
@@ -607,7 +607,7 @@ NS_ASSUME_NONNULL_BEGIN
 
         // Span could be nil as we do the first check outside the synchronize
         if (span != nil) {
-            if (![event.type isEqualToString:SentryEnvelopeItemTypeTransaction] &&
+            if (![event.type isEqualToString:SentryEnvelopeItemTypes.transaction] &&
                 [span isKindOfClass:[SentryTracer class]]) {
                 event.transaction = [[(SentryTracer *)span transactionContext] name];
             }

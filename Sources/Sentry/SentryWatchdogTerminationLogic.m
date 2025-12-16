@@ -3,11 +3,10 @@
 
 #if SENTRY_HAS_UIKIT
 
-#    import <SentryAppState.h>
 #    import <SentryAppStateManager.h>
-#    import <SentryCrashWrapper.h>
 #    import <SentryOptions.h>
 #    import <SentrySDK+Private.h>
+#    import <SentrySwift.h>
 
 @interface SentryWatchdogTerminationLogic ()
 

@@ -12,7 +12,6 @@
 #import "SentryNoOpSpan.h"
 #import "SentryOptions+Private.h"
 #import "SentryProfilingConditionals.h"
-#import "SentryRandom.h"
 #import "SentrySDK+Private.h"
 #import "SentrySamplerDecision.h"
 #import "SentryScope+Private.h"
@@ -22,15 +21,12 @@
 #import "SentrySpanId.h"
 #import "SentrySpanOperation.h"
 #import "SentrySwift.h"
-#import "SentryThreadWrapper.h"
 #import "SentryTime.h"
 #import "SentryTraceContext.h"
 #import "SentryTracer+Private.h"
 #import "SentryTransaction.h"
 #import "SentryTransactionContext.h"
-#import "SentryUIApplication.h"
 #import <NSMutableDictionary+Sentry.h>
-#import <SentryMeasurementValue.h>
 
 #if SENTRY_TARGET_PROFILING_SUPPORTED
 #    import "SentryProfiledTracerConcurrency.h"
@@ -919,14 +915,14 @@ static BOOL appStartMeasurementRead;
     }
 }
 
-+ (nullable SentryTracer *)getTracer:(id<SentrySpan>)span
++ (nullable SentryTracer *)getTracer:(id<SentrySpan> _Nullable)span
 {
     if (span == nil) {
         return nil;
     }
 
     if ([span isKindOfClass:[SentryTracer class]]) {
-        return span;
+        return (SentryTracer *)span;
     } else if ([span isKindOfClass:[SentrySpan class]]) {
         return [(SentrySpan *)span tracer];
     }
