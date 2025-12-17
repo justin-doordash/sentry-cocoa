@@ -1,31 +1,221 @@
 # Changelog
 
-## Unreleased
+## 8.57.3
+
+### Fixes
+
+- Remove unnecesary dependency on `SentryCppHelper` to Sentry (#6754) (#6761)
+- Resolve SDK crash caused by UIPrintPanelViewController incorrectly casting to UISplitViewController (#6771)
+
+## 8.57.2
+
+### Fixes
+
+- Fix rendering method for fast view rendering (#6360)
+- Session Replay masking improvements (#6292)
+  - Fix SwiftUI.List background decoration view causing incorrect clipping of screen content
+  - Fix sublayer rendering order by properly sorting by zPosition with insertion order as tie-breaker
+  - Fix UISwitch internal images being incorrectly redacted
+  - Fix UITextField placeholder text (UITextFieldLabel) not being detected for redaction
+  - Use string-based class comparison to avoid triggering Objective-C +initialize on background threads
+  - Add layer class filtering for views used in multiple contexts (e.g., SwiftUI._UIGraphicsView)
+  - Improve transform calculations for views with custom anchor points
+  - Fix axis-aligned transform detection for optimized opaque view clipping
+- Fix conversion of frame rate to time interval for session replay (#6623)
+- Change Session Replay masking to prevent semi‑transparent full‑screen overlays from clearing redactions by making opaque clipping stricter (#6629)
+  Views now need to be fully opaque (view and layer backgrounds with alpha == 1) and report opaque to qualify for clip‑out.
+  This avoids leaks at the cost of fewer clip‑out optimizations.
+
+## 8.57.1
+
+### Fixes
+
+- Fix crash from accessing UITouch instances from background thread in SentryTouchTracker (#6584)
+- Disable SessionSentryReplayIntegration if the environment is unsafe [#6573]
+- Fix crash when last replay info is missing some keys [#6577]
+
+## 8.57.0
+
+> [!Warning]
+> **Session Replay is disabled by default on iOS 26.0+ with Xcode 26.0+ to prevent PII leaks**
+>
+> Due to potential masking issues introduced by Apple's Liquid Glass rendering changes in iOS 26.0, Session Replay is now **automatically disabled** on apps running iOS 26.0+ when built with Xcode 26.0 or later. This is a defensive measure to protect user privacy and prevent potential PII leaks until masking is reliably supported.
+>
+> Session replay will work normally if:
+>
+> - Your app runs on iOS versions older than 26.0, OR
+> - Your app is built with Xcode versions older than 26.0, OR
+> - Your app explicitly sets `UIDesignRequiresCompatibility` to `YES` in `Info.plist`
+>
+> **Override (use with caution):** If you understand the PII risks and want to enable session replay anyway, you can set:
+>
+> ```swift
+> options.experimental.enableSessionReplayInUnreliableEnvironment = true
+> ```
+>
+> This experimental override option will be removed in a future minor version once the masking issues are resolved.
+
+### Fixes
+
+- Fix wrong Frame Delay when becoming active, which lead to false reported app hangs when the app moves to the foreground after being in the background (#6393)
+- Session replay is now automatically disabled in environments with unreliable masking to prevent PII leaks (#6389)
+  - Detects iOS 26.0+ runtime with Xcode 26.0+ builds (DTXcode >= 2600)
+  - Detects missing or disabled `UIDesignRequiresCompatibility`
+  - Uses defensive approach: assumes unsafe unless proven safe
+- Add `options.experimental.enableSessionReplayInUnreliableEnvironment` to allow overriding the automatic disabling (#6389)
+
+## 8.56.2
+
+> [!Warning]
+> Session Replay in this version does not correctly mask views when built with Xcode 26 and running on iOS 26 with Liquid Glass, which may lead to PII leaks. Please upgrade to 8.57.0 or later, which automatically **disables session replay** in such environments.
+
+### Fixes
+
+- Fix crash from null UIApplication in SwiftUI apps (#6264)
+
+## 8.56.1
+
+> [!Warning]
+> This version can cause runtime crashes because the `UIApplication.sharedApplication`/`NSApplication.sharedApplication` is not yet available during SDK initialization, due to the changes in [PR #5900](https://github.com/getsentry/sentry-cocoa/pull/5900), released in [8.56.0](https://github.com/getsentry/sentry-cocoa/releases/tag/8.56.0).
+
+> [!Warning]
+> Session Replay in this version does not correctly mask views when built with Xcode 26 and running on iOS 26 with Liquid Glass, which may lead to PII leaks. Please upgrade to 8.57.0 or later, which automatically **disables session replay** in such environments.
+
+### Fixes
+
+- Fix potential app launch hang caused by the SentrySDK (#6181)
+  Fixed by removing the call to `_dyld_get_image_header` on the main thread.
+- Fix dynamic selector crash in SentryReplayRecording (#6211)
+
+## 8.56.0
+
+> [!Warning]
+> This version can cause runtime crashes because the `UIApplication.sharedApplication`/`NSApplication.sharedApplication` is not yet available during SDK initialization, due to the changes in [PR #5900](https://github.com/getsentry/sentry-cocoa/pull/5900), released in [8.56.0](https://github.com/getsentry/sentry-cocoa/releases/tag/8.56.0).
+
+> [!Warning]
+> Session Replay in this version does not correctly mask views when built with Xcode 26 and running on iOS 26 with Liquid Glass, which may lead to PII leaks. Please upgrade to 8.57.0 or later, which automatically **disables session replay** in such environments.
 
 ### Features
 
 - Structured Logs: Flush logs on SDK flush/close (#5834)
+- Add masking options for screenshots (#5401)
+- Add significant time change breadcrumb (#6112)
+- Add support for iOS 26, macOS 26, visionOS 26, watchOS 26, and tvOS 26 in device tests (#6063)
 
-## 8.54.1-alpha.1
+### Improvements
+
+- Lazily CharacterSet only once in SentryBaggageSerialization (#5871)
+- Structured Logging: Log `SentrySDK.logger` calls to `SentrySDKLog` (#5991)
+- The build type in the app context now differentiates between `enterprise` and `adhoc` (#6044)
+- visionOS no longer needs swift's interoperability mode (#6077)
+- Ensure IP address is only inferred by Relay if sendDefaultPii is true (#5877)
+- Sentry without UIKit / AppKit is available to install with SPM (#6160)
+
+### Fixes
+
+- Don't capture replays for events dropped in `beforeSend` (#5916)
+- Fix linking with SentrySwiftUI on Xcode 26 for visionOS (#5823)
+- Structured Logging: Logger called before `SentrySDK.start` becomes unusable (#5984)
+- Add masking for AVPlayerView (#5910)
+- Fix missing view hierachy when enabling `attachScreenshot` too (#5989)
+- Fix macOS's frameworks not following the versioned framework structure (#6049)
+- Add warning to addBreadcrumb when used before SDK init (#6083)
+- Add null-handling for parsed DSN in SentryHTTPTransport (#5800)
+- Fix crash in Session Replay when opening the camera UI on iOS 26+ by skipping redaction of internal views.
+  This may result in more of the camera screen being redacted. (#6045)
+- Fix crash in SentryDependencyContainer init when using the SDK as a static framework (#6125)
+- Fixes a React Native legacy build failure by adding the missing self references for explicit capture semantics (#6156)
+
+## 8.56.0-alpha.3
+
+### Fixes
+
+- Fixes a React Native legacy build failure by adding the missing self references for explicit capture semantics (#6156)
+
+## 8.56.0-alpha.2
+
+### Features
+
+- Add significant time change breadcrumb (#6112)
+- Add support for iOS 26, macOS 26, visionOS 26, watchOS 26, and tvOS 26 in device tests (#6063)
+
+### Fixes
+
+- Fix crash in Session Replay when opening the camera UI on iOS 26+ by skipping redaction of internal views.
+  This may result in more of the camera screen being redacted. (#6045)
+- Fix crash in SentryDependencyContainer init when using the SDK as a static framework (#6125)
+
+## 8.56.0-alpha.1
 
 - No documented changes.
 
-## 8.54.1-alpha.0
+## 8.56.0-alpha.0
+
+### Features
+
+- Structured Logs: Flush logs on SDK flush/close (#5834)
+- Add masking options for screenshots (#5401)
+
+### Fixes
+
+- Don't capture replays for events dropped in `beforeSend` (#5916)
+- Fix linking with SentrySwiftUI on Xcode 26 for visionOS (#5823)
+- Structured Logging: Logger called before `SentrySDK.start` becomes unusable (#5984)
+- Add masking for AVPlayerView (#5910)
+- Fix missing view hierachy when enabling `attachScreenshot` too (#5989)
+- Fix macOS's frameworks not following the versioned framework structure (#6049)
+- Add warning to addBreadcrumb when used before SDK init (#6083)
+- Add null-handling for parsed DSN in SentryHTTPTransport (#5800)
+
+### Improvements
+
+- Lazily CharacterSet only once in SentryBaggageSerialization (#5871)
+- Structured Logging: Log `SentrySDK.logger` calls to `SentrySDKLog` (#5991)
+- The build type in the app context now differentiates between `enterprise` and `adhoc` (#6044)
+- visionOS no longer needs swift's interoperability mode (#6077)
+- Ensure IP address is only inferred by Relay if sendDefaultPii is true (#5877)
+
+## 8.55.1
+
+> [!Warning]
+> Session Replay in this version does not correctly mask views when built with Xcode 26 and running on iOS 26 with Liquid Glass, which may lead to PII leaks. Please upgrade to 8.57.0 or later, which automatically **disables session replay** in such environments.
+
+### Features
+
+### Fixes
+
+- Fix macOS's frameworks not following the versioned framework structure (#6049)
+
+## 8.54.1-alpha.1
+
+### Fixes
+
+- Add padding to tap area of widget button (#5949)
+
+## 8.55.0
 
 > [!Important]
 > Xcode 26 no longer allows individual frameworks to contain arm64e slices anymore if the main binary doesn't contain them.
-> We have decided to split the Dynamic variant of Sentry into two variants:
+> We have decided to split the Dynamic variant and Sentry-WithoutUIKitOrAppKit of Sentry into two variants:
 >
-> - `Sentry-Dynamic`: Without arm64e
+> - `Sentry-Dynamic`: Without ARM64e
 > - `Sentry-Dynamic-WithARM64e`: _With_ ARM64e slice
+> - `Sentry-WithoutUIKitOrAppKit`: Without ARM64e
+> - `Sentry-WithoutUIKitOrAppKit-WithARM64e`: _With_ ARM64e slice
 >
 > If your app does not need arm64e, you don't need to make any changes.
-> But if your app _needs arm64e_ please use `Sentry-Dynamic-WithARM64e` from 8.55.0 so you don't have issues uploading to the App Store.
+> But if your app _needs arm64e_ please use `Sentry-Dynamic-WithARM64e` or `Sentry-WithoutUIKitOrAppKit-WithARM64e` from 8.55.0 so you don't have issues uploading to the App Store.
+
+> [!Warning]
+> Session Replay in this version does not correctly mask views when built with Xcode 26 and running on iOS 26 with Liquid Glass, which may lead to PII leaks. Please upgrade to 8.57.0 or later, which automatically **disables session replay** in such environments.
 
 ### Features
 
 - Add a new prebuilt framework with arm64e and remove it from the regular one (#5788)
 - Add `beforeSendLog` callback to `SentryOptions` (#5678)
+- Structured Logs: Flush logs on SDK flush/close (#5834)
+- Add a new prebuilt framework with ARM64e for WithoutUIKitOrAppKit (#5897)
+- Add source context and vars fields to SentryFrame (#5853)
 
 ### Fixes
 
@@ -33,12 +223,17 @@
 - Fix Infinite Session Replay Processing Loop (#5765)
 - Fix memory leak in SessionReplayIntegration (#5770)
 - Fix reporting of energy used while profiling (#5768)
+- Fixed a build error in `SentryFeedback.swift` when building with cocoapods on Xcode 14.2 (#5917)
+- Fix linking against Sentry on an app extension (#5813)
 
 ### Internal
 
 - Add nullability property for `screenName` (#5782)
 
 ## 8.54.0
+
+> [!Warning]
+> Session Replay in this version does not correctly mask views when built with Xcode 26 and running on iOS 26 with Liquid Glass, which may lead to PII leaks. Please upgrade to 8.57.0 or later, which automatically **disables session replay** in such environments.
 
 ### Features
 

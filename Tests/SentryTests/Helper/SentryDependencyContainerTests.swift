@@ -108,7 +108,6 @@ final class SentryDependencyContainerTests: XCTestCase {
 
 #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
                     XCTAssertNotNil(SentryDependencyContainer.sharedInstance().uiDeviceWrapper)
-                    XCTAssertNotNil(SentryDependencyContainer.sharedInstance().application)
 #endif // os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
 
                     // Lazy Dependencies
@@ -134,7 +133,7 @@ final class SentryDependencyContainerTests: XCTestCase {
 #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
                     XCTAssertNotNil(SentryDependencyContainer.sharedInstance().swizzleWrapper)
                     XCTAssertNotNil(SentryDependencyContainer.sharedInstance().framesTracker)
-                    XCTAssertNotNil(SentryDependencyContainer.sharedInstance().screenshot)
+                    XCTAssertNotNil(SentryDependencyContainer.sharedInstance().screenshotSource)
                     XCTAssertNotNil(SentryDependencyContainer.sharedInstance().viewHierarchyProvider)
 
                     XCTAssertNotNil(SentryDependencyContainer.sharedInstance().uiViewControllerPerformanceTracker)
@@ -332,7 +331,8 @@ final class SentryDependencyContainerTests: XCTestCase {
 
         // -- Assert --
         // Verify that the tracker uses the dependencies from the container
-        XCTAssertIdentical(Dynamic(tracker).application.asAnyObject, container.application)
+
+        XCTAssertIdentical(Dynamic(tracker).application.asAnyObject, container.application())
         XCTAssertIdentical(Dynamic(tracker).dateProvider.asAnyObject, container.dateProvider)
         XCTAssertIdentical(Dynamic(tracker).notificationCenter.asAnyObject, container.notificationCenterWrapper)
     }

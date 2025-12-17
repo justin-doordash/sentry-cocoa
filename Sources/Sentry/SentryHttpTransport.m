@@ -1,15 +1,10 @@
 #import "SentryHttpTransport.h"
-#import "SentryClientReport.h"
 #import "SentryDataCategory.h"
 #import "SentryDataCategoryMapper.h"
 #import "SentryDependencyContainer.h"
 #import "SentryDiscardReasonMapper.h"
-#import "SentryDiscardedEvent.h"
 #import "SentryDsn.h"
-#import "SentryEnvelope+Private.h"
-#import "SentryEnvelope.h"
 #import "SentryEnvelopeItemHeader.h"
-#import "SentryEnvelopeItemType.h"
 #import "SentryEnvelopeRateLimit.h"
 #import "SentryEvent.h"
 #import "SentryFileManager.h"
@@ -33,7 +28,8 @@
 @property (nonatomic, strong) SentryFileManager *fileManager;
 @property (nonatomic, strong) id<SentryRequestManager> requestManager;
 @property (nonatomic, strong) SentryNSURLRequestBuilder *requestBuilder;
-@property (nonatomic, strong) SentryOptions *options;
+@property (nonatomic, strong) SentryDsn *dsn;
+@property (nonatomic) BOOL sendClientReports;
 @property (nonatomic, strong) id<SentryRateLimits> rateLimits;
 @property (nonatomic, strong) SentryEnvelopeRateLimit *envelopeRateLimit;
 @property (nonatomic, strong) SentryDispatchQueueWrapper *dispatchQueue;
@@ -67,7 +63,8 @@
 
 @implementation SentryHttpTransport
 
-- (id)initWithOptions:(SentryOptions *)options
+- (id)initWithDsn:(SentryDsn *)dsn
+          sendClientReports:(BOOL)sendClientReports
     cachedEnvelopeSendDelay:(NSTimeInterval)cachedEnvelopeSendDelay
                dateProvider:(id<SentryCurrentDateProvider>)dateProvider
                 fileManager:(SentryFileManager *)fileManager
@@ -78,7 +75,8 @@
        dispatchQueueWrapper:(SentryDispatchQueueWrapper *)dispatchQueueWrapper
 {
     if (self = [super init]) {
-        self.options = options;
+        self.dsn = dsn;
+        self.sendClientReports = sendClientReports;
         _cachedEnvelopeSendDelay = cachedEnvelopeSendDelay;
         self.requestManager = requestManager;
         self.requestBuilder = requestBuilder;
@@ -93,7 +91,11 @@
         self.discardedEvents = [NSMutableDictionary new];
         self.notStoredEnvelopes = [NSMutableArray new];
         [self.envelopeRateLimit setDelegate:self];
-        [self.fileManager setDelegate:self];
+        typeof(self) __weak weakSelf = self;
+        [self.fileManager
+            setEnvelopeDeletedCallback:^(SentryEnvelopeItem *item, SentryDataCategory category) {
+                [weakSelf envelopeItemDeleted:item withCategory:category];
+            }];
 
         [self sendAllCachedEnvelopes];
 
@@ -162,7 +164,7 @@
                  reason:(SentryDiscardReason)reason
                quantity:(NSUInteger)quantity
 {
-    if (!self.options.sendClientReports) {
+    if (!self.sendClientReports) {
         return;
     }
 
@@ -175,8 +177,8 @@
             quantity = event.quantity + 1;
         }
 
-        event = [[SentryDiscardedEvent alloc] initWithReason:reason
-                                                    category:category
+        event = [[SentryDiscardedEvent alloc] initWithReason:nameForSentryDiscardReason(reason)
+                                                    category:nameForSentryDataCategory(category)
                                                     quantity:quantity];
 
         self.discardedEvents[key] = event;
@@ -262,9 +264,6 @@
     [self recordLostSpans:envelopeItem reason:kSentryDiscardReasonRateLimitBackoff];
 }
 
-/**
- * SentryFileManagerDelegate.
- */
 - (void)envelopeItemDeleted:(SentryEnvelopeItem *)envelopeItem
                withCategory:(SentryDataCategory)dataCategory
 {
@@ -276,7 +275,7 @@
 
 - (SentryEnvelope *)addClientReportTo:(SentryEnvelope *)envelope
 {
-    if (!self.options.sendClientReports) {
+    if (!self.sendClientReports) {
         return envelope;
     }
 
@@ -291,7 +290,8 @@
         [self.discardedEvents removeAllObjects];
     }
 
-    SentryClientReport *clientReport = [[SentryClientReport alloc] initWithDiscardedEvents:events];
+    SentryClientReport *clientReport =
+        [[SentryClientReport alloc] initWithDiscardedEvents:events dateProvider:self.dateProvider];
 
     SentryEnvelopeItem *clientReportEnvelopeItem =
         [[SentryEnvelopeItem alloc] initWithClientReport:clientReport];
@@ -339,7 +339,7 @@
 
         envelopeFilePath = envelopeFileContents.path;
 
-        envelope = [SentrySerialization envelopeWithData:envelopeFileContents.contents];
+        envelope = [SentrySerializationSwift envelopeWithData:envelopeFileContents.contents];
         if (nil == envelope) {
             SENTRY_LOG_DEBUG(@"Envelope contained no deserializable data.");
             [self deleteEnvelopeAndSendNext:envelopeFilePath];
@@ -357,14 +357,14 @@
     // We must set sentAt as close as possible to the transmission of the envelope to Sentry.
     rateLimitedEnvelope.header.sentAt = [self.dateProvider date];
 
-    NSError *requestError = nil;
+    NSError *_Nullable requestError = nil;
     NSURLRequest *request = [self.requestBuilder createEnvelopeRequest:rateLimitedEnvelope
-                                                                   dsn:self.options.parsedDsn
+                                                                   dsn:self.dsn
                                                       didFailWithError:&requestError];
 
     if (nil == request || nil != requestError) {
         if (nil != requestError) {
-            SENTRY_LOG_DEBUG(@"Failed to build request: %@.", requestError);
+            SENTRY_LOG_FATAL(@"Failed to build request to send envelope: %@.", requestError);
         }
         [self recordLostEventFor:rateLimitedEnvelope.items];
         [self deleteEnvelopeAndSendNext:envelopeFilePath];
@@ -445,7 +445,7 @@
         NSString *itemType = item.header.type;
         // We don't want to record a lost event when it's a client report.
         // It's fine to drop it silently.
-        if ([itemType isEqualToString:SentryEnvelopeItemTypeClientReport]) {
+        if ([itemType isEqualToString:SentryEnvelopeItemTypes.clientReport]) {
             continue;
         }
         SentryDataCategory category = sentryDataCategoryForEnvelopItemType(itemType);
@@ -456,7 +456,7 @@
 
 - (void)recordLostSpans:(SentryEnvelopeItem *)envelopeItem reason:(SentryDiscardReason)reason
 {
-    if ([SentryEnvelopeItemTypeTransaction isEqualToString:envelopeItem.header.type]) {
+    if ([SentryEnvelopeItemTypes.transaction isEqualToString:envelopeItem.header.type]) {
         NSDictionary *_Nullable transactionJson =
             [SentrySerialization deserializeDictionaryFromJsonData:envelopeItem.data];
         if (transactionJson == nil) {
